@@ -30,7 +30,6 @@ import com.google.common.collect.Maps;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
 import org.apache.commons.lang.StringUtils;
 import org.apache.commons.lang3.tuple.MutablePair;
 import org.apache.hadoop.conf.Configuration;
@@ -66,6 +65,7 @@ import com.datatorrent.api.Context.DAGContext;
 import com.datatorrent.api.DAG;
 import com.datatorrent.api.StringCodec;
 
+import com.datatorrent.stram.StreamingContainerAgent.ContainerStartRequest;
 import com.datatorrent.stram.StreamingContainerManager.ContainerResource;
 import com.datatorrent.stram.api.AppDataSource;
 import com.datatorrent.stram.api.BaseContext;
@@ -704,6 +704,10 @@ public class StreamingAppMasterService extends CompositeService
       YarnConfiguration.DEFAULT_RM_ADDRESS,
       YarnConfiguration.DEFAULT_RM_PORT);
 
+    List<Set<ContainerStartRequest>> containerStartRequestSet = new LinkedList<Set<ContainerStartRequest>>();
+    int currentIndex = 0;
+    Set<ContainerStartRequest> currentRequestsSet = null;
+    Map<PTContainer, Container> containerToAllocatedContainerMapping = new HashMap<PTContainer, Container>();
     while (!appDone) {
       loopCounter++;
 
@@ -734,10 +738,12 @@ public class StreamingAppMasterService extends CompositeService
       }
 
       // Setup request to be sent to RM to allocate containers
-      List<ContainerRequest> containerRequests = new ArrayList<ContainerRequest>();
+      Set<ContainerStartRequest> containerStartRequests = new HashSet<ContainerStartRequest>();
       List<ContainerRequest> removedContainerRequests = new ArrayList<ContainerRequest>();
+      Map<String, List<ContainerStartRequest>> operatorNameToContainerRequestMapping = new HashMap<String, List<ContainerStartRequest>>();
 
       // request containers for pending deploy requests
+      // First add all the containers which do not have anti-affinity set:
       if (!dnmgr.containerStartRequests.isEmpty()) {
         StreamingContainerAgent.ContainerStartRequest csr;
         while ((csr = dnmgr.containerStartRequests.poll()) != null) {
@@ -745,41 +751,79 @@ public class StreamingAppMasterService extends CompositeService
             LOG.warn("Container memory {}m above max threshold of cluster. Using max value {}m.", csr.container.getRequiredMemoryMB(), maxMem);
             csr.container.setRequiredMemoryMB(maxMem);
           }
-          if(csr.container.getRequiredMemoryMB() < minMem){
+          if (csr.container.getRequiredMemoryMB() < minMem) {
             csr.container.setRequiredMemoryMB(minMem);
           }
           if (csr.container.getRequiredVCores() > maxVcores) {
             LOG.warn("Container vcores {} above max threshold of cluster. Using max value {}.", csr.container.getRequiredVCores(), maxVcores);
             csr.container.setRequiredVCores(maxVcores);
           }
-          if(csr.container.getRequiredVCores() < minVcores){
+          if (csr.container.getRequiredVCores() < minVcores) {
             csr.container.setRequiredVCores(minVcores);
           }
+
+          for (PTOperator operator : csr.container.getOperators()) {
+            if (!operatorNameToContainerRequestMapping.containsKey(operator.getName())) {
+              operatorNameToContainerRequestMapping.put(operator.getName(), new ArrayList<ContainerStartRequest>());
+            }
+            operatorNameToContainerRequestMapping.get(operator.getName()).add(csr);
+          }
           csr.container.setResourceRequestPriority(nextRequestPriority++);
-          ContainerRequest cr = resourceRequestor.createContainerRequest(csr, true);
-          MutablePair<Integer, ContainerRequest> pair = new MutablePair<Integer, ContainerRequest>(loopCounter, cr);
-          requestedResources.put(csr, pair);
-          containerRequests.add(cr);
+          requestedResources.put(csr, null);
+          containerStartRequests.add(csr);
         }
       }
+      LOG.info("New container requests = {}", containerStartRequests.size());
 
-      if (!requestedResources.isEmpty()) {
-        //resourceRequestor.clearNodeMapping();
-        for (Map.Entry<StreamingContainerAgent.ContainerStartRequest, MutablePair<Integer, ContainerRequest>> entry : requestedResources.entrySet()) {
-          if ((loopCounter - entry.getValue().getKey()) > NUMBER_MISSED_HEARTBEATS) {
-            StreamingContainerAgent.ContainerStartRequest csr = entry.getKey();
-            removedContainerRequests.add(entry.getValue().getRight());
-            ContainerRequest cr = resourceRequestor.createContainerRequest(csr, false);
-            entry.getValue().setLeft(loopCounter);
-            entry.getValue().setRight(cr);
+      List<Set<ContainerStartRequest>> containerRequestsSet = partitionRequestsWithAntiAffinity(operatorNameToContainerRequestMapping, containerStartRequests);
+      sortRequestsSetBySize(containerRequestsSet);
+      containerStartRequestSet.addAll(containerRequestsSet);
+
+      LOG.info("Number of Sets of container requests as per anti-affinity= {}", containerRequestsSet.size());
+      LOG.info("Number of Sets final {}", containerStartRequestSet.size());
+
+      List<String> blacklistAdditions = new ArrayList<String>();
+
+      if (currentIndex == 0 && currentIndex < containerStartRequestSet.size()) {
+        Set<ContainerStartRequest> csr = containerStartRequestSet.get(currentIndex++);
+        LOG.info("Adding container request set {}", csr);
+        currentRequestsSet = csr;
+      }
+
+      List<ContainerRequest> containerRequests = new ArrayList<ContainerRequest>();
+
+      if (currentRequestsSet != null) {
+        LOG.info("Allocating container request set {}", currentRequestsSet);
+        for (ContainerStartRequest csr : currentRequestsSet) {
+          if (requestedResources.get(csr) == null) {
+            ContainerRequest cr = resourceRequestor.createContainerRequest(csr, true);
+            MutablePair<Integer, ContainerRequest> pair = new MutablePair<Integer, ContainerRequest>(loopCounter, cr);
+            requestedResources.put(csr, pair);
             containerRequests.add(cr);
           }
         }
+
+        if (!requestedResources.isEmpty()) {
+          // resourceRequestor.clearNodeMapping();
+          for (ContainerStartRequest csr : currentRequestsSet) {
+            MutablePair<Integer, ContainerRequest> entry = requestedResources.get(csr);
+            // TODO: Add a timeout for resending requests in case of blacklisting
+            if ((loopCounter - entry.getKey()) > NUMBER_MISSED_HEARTBEATS) {
+              removedContainerRequests.add(entry.getRight());
+              ContainerRequest cr = resourceRequestor.createContainerRequest(csr, false);
+              entry.setLeft(loopCounter);
+              entry.setRight(cr);
+              containerRequests.add(cr);
+            }
+          }
+        }
       }
 
+      // Add containers which prohave anti-affinity set:
       numTotalContainers += containerRequests.size();
       numRequestedContainers += containerRequests.size();
       AllocateResponse amResp = sendContainerAskToRM(containerRequests, removedContainerRequests, releasedContainers);
+      // amRespList.add(amResp);
       if (amResp.getAMCommand() != null) {
         LOG.info(" statement executed:{}", amResp.getAMCommand());
         switch (amResp.getAMCommand()) {
@@ -795,13 +839,15 @@ public class StreamingAppMasterService extends CompositeService
 
       // Retrieve list of allocated containers from the response
       List<Container> newAllocatedContainers = amResp.getAllocatedContainers();
-      // LOG.info("Got response from RM for container ask, allocatedCnt=" + newAllocatedContainers.size());
+      // LOG.info("Got response from RM for container ask, allocatedCnt=" +
+      // newAllocatedContainers.size());
       numRequestedContainers -= newAllocatedContainers.size();
       long timestamp = System.currentTimeMillis();
       for (Container allocatedContainer : newAllocatedContainers) {
 
         LOG.info("Got new container." + ", containerId=" + allocatedContainer.getId() + ", containerNode=" + allocatedContainer.getNodeId() + ", containerNodeURI=" + allocatedContainer.getNodeHttpAddress() + ", containerResourceMemory" + allocatedContainer.getResource().getMemory() + ", priority" + allocatedContainer.getPriority());
-        // + ", containerToken" + allocatedContainer.getContainerToken().getIdentifier().toString());
+        // + ", containerToken" +
+        // allocatedContainer.getContainerToken().getIdentifier().toString());
 
         boolean alreadyAllocated = true;
         StreamingContainerAgent.ContainerStartRequest csr = null;
@@ -832,8 +878,7 @@ public class StreamingAppMasterService extends CompositeService
           // allocated container no longer needed, add release request
           LOG.warn("Container {} allocated but nothing to deploy, going to release this container.", allocatedContainer.getId());
           releasedContainers.add(allocatedContainer.getId());
-        }
-        else {
+        } else {
           AllocatedContainer allocatedContainerHolder = new AllocatedContainer(allocatedContainer);
           this.allocatedContainers.put(allocatedContainer.getId().toString(), allocatedContainerHolder);
           ByteBuffer tokens = null;
@@ -841,9 +886,10 @@ public class StreamingAppMasterService extends CompositeService
             UserGroupInformation ugi = UserGroupInformation.getLoginUser();
             Token<StramDelegationTokenIdentifier> delegationToken = allocateDelegationToken(ugi.getUserName(), heartbeatListener.getAddress());
             allocatedContainerHolder.delegationToken = delegationToken;
-            //ByteBuffer tokens = LaunchContainerRunnable.getTokens(delegationTokenManager, heartbeatListener.getAddress());
+            // ByteBuffer tokens = LaunchContainerRunnable.getTokens(delegationTokenManager, heartbeatListener.getAddress());
             tokens = LaunchContainerRunnable.getTokens(ugi, delegationToken);
           }
+          containerToAllocatedContainerMapping.put(sca.getContainer(), allocatedContainer);
           LaunchContainerRunnable launchContainer = new LaunchContainerRunnable(allocatedContainer, nmClient, sca, tokens);
           // Thread launchThread = new Thread(runnableLaunchContainer);
           // launchThreads.add(launchThread);
@@ -854,6 +900,21 @@ public class StreamingAppMasterService extends CompositeService
           StramEvent ev = new StramEvent.StartContainerEvent(allocatedContainer.getId().toString(), allocatedContainer.getNodeId().toString());
           ev.setTimestamp(timestamp);
           dnmgr.recordEventAsync(ev);
+        }
+      }
+
+      // Check if all container requests are allocated
+      if (currentRequestsSet != null && checkIfAllContainerRequestsInSetAreAllocated(currentRequestsSet, containerToAllocatedContainerMapping)) {
+        for (ContainerStartRequest csr : currentRequestsSet) {
+          // Add the hostname of container to blacklist to support anti-affinity
+          // of containers
+          blacklistAdditions.add(containerToAllocatedContainerMapping.get(csr.container).getNodeHttpAddress());
+          amRmClient.updateBlacklist(blacklistAdditions, null);
+        }
+        if (currentIndex < containerStartRequestSet.size()) {
+          currentRequestsSet = containerStartRequestSet.get(currentIndex++);
+        } else {
+          currentRequestsSet = null;
         }
       }
 
@@ -880,21 +941,21 @@ public class StreamingAppMasterService extends CompositeService
           if (allocatedContainer != null) {
             numFailedContainers.incrementAndGet();
           }
-//          if (exitStatus == 1) {
-//            // non-recoverable StreamingContainer failure
-//            appDone = true;
-//            finalStatus = FinalApplicationStatus.FAILED;
-//            dnmgr.shutdownDiagnosticsMessage = "Unrecoverable failure " + containerStatus.getContainerId();
-//            LOG.info("Exiting due to: {}", dnmgr.shutdownDiagnosticsMessage);
-//          }
-//          else {
-          // Recoverable failure or process killed (externally or via stop request by AM)
-          // also occurs when a container was released by the application but never assigned/launched
+//         if (exitStatus == 1) {
+//           // non-recoverable StreamingContainer failure
+//           appDone = true;
+//           finalStatus = FinalApplicationStatus.FAILED;
+//           dnmgr.shutdownDiagnosticsMessage = "Unrecoverable failure " +
+//           containerStatus.getContainerId();
+//           LOG.info("Exiting due to: {}", dnmgr.shutdownDiagnosticsMessage);
+//         }
+//         else {
+//         Recoverable failure or process killed (externally or via stop request by AM)
+//         also occurs when a container was released by the application but never assigned/launched
           LOG.debug("Container {} failed or killed.", containerStatus.getContainerId());
           dnmgr.scheduleContainerRestart(containerStatus.getContainerId().toString());
-//          }
-        }
-        else {
+          // }
+        } else {
           // container completed successfully
           numCompletedContainers.incrementAndGet();
           LOG.info("Container completed successfully." + ", containerId=" + containerStatus.getContainerId());
@@ -927,6 +988,56 @@ public class StreamingAppMasterService extends CompositeService
     }
 
     finishApplication(finalStatus, numTotalContainers);
+  }
+
+  private boolean checkIfAllContainerRequestsInSetAreAllocated(Set<ContainerStartRequest> currentRequestsSet, Map<PTContainer, Container> containerToAllocatedContainerMapping)
+  {
+    for (ContainerStartRequest csr : currentRequestsSet) {
+      if (!containerToAllocatedContainerMapping.containsKey(csr.container))
+        return false;
+    }
+    return true;
+  }
+
+  private void sortRequestsSetBySize(List<Set<ContainerStartRequest>> containerRequestsSet)
+  {
+    // Sort containerRequestsSet by size
+    Collections.sort(containerRequestsSet, new Comparator<Set<?>>() {
+
+      @Override
+      public int compare(Set<?> o1, Set<?> o2)
+      {
+        return Integer.valueOf(o1.size()).compareTo(o2.size());
+      }
+    });
+  }
+
+  /*
+   * Separates list of container requests into multiple sets as per anti-affinity specified in container
+   */
+  private List<Set<ContainerStartRequest>> partitionRequestsWithAntiAffinity(Map<String, List<ContainerStartRequest>> operatorNameToRequestMapping, Set<ContainerStartRequest> containerStartRequests)
+  {
+    List<Set<ContainerStartRequest>> partitions = new LinkedList<Set<ContainerStartRequest>>();
+    Set<ContainerStartRequest> newPartition = new HashSet<ContainerStartRequest>();
+    Set<ContainerStartRequest> removeList = new HashSet<ContainerStartRequest>();
+
+    for (ContainerStartRequest request : containerStartRequests) {
+      if (removeList.contains(request) || request.container.getAntiAffinityOperators() == null) {
+        continue;
+      }
+      for (String operator : request.container.getAntiAffinityOperators()) {
+        if (containerStartRequests.contains(operatorNameToRequestMapping.get(operator).get(0))) {
+          newPartition.addAll(operatorNameToRequestMapping.get(operator));
+          partitions.addAll(partitionRequestsWithAntiAffinity(operatorNameToRequestMapping, newPartition));
+          removeList.addAll(operatorNameToRequestMapping.get(operator));
+        }
+      }
+    }
+    containerStartRequests.removeAll(removeList);
+    if(!containerStartRequests.isEmpty()) {
+      partitions.add(containerStartRequests);
+    }
+    return partitions;
   }
 
   private void finishApplication(FinalApplicationStatus finalStatus, int numTotalContainers) throws YarnException, IOException
