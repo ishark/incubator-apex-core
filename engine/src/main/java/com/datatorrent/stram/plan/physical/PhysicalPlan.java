@@ -31,7 +31,6 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
 import com.datatorrent.api.Context.OperatorContext;
 import com.datatorrent.api.Context.PortContext;
 import com.datatorrent.api.*;
@@ -41,10 +40,10 @@ import com.datatorrent.api.Partitioner.Partition;
 import com.datatorrent.api.Partitioner.PartitionKeys;
 import com.datatorrent.api.StatsListener.OperatorRequest;
 import com.datatorrent.api.annotation.Stateless;
-
 import com.datatorrent.common.util.AsyncFSStorageAgent;
 import com.datatorrent.netlet.util.DTThrowable;
 import com.datatorrent.stram.Journal.Recoverable;
+import com.datatorrent.stram.StreamingContainerAgent.ContainerStartRequest;
 import com.datatorrent.stram.api.Checkpoint;
 import com.datatorrent.stram.api.StramEvent;
 import com.datatorrent.stram.api.StreamingContainerUmbilicalProtocol.StramToNodeRequest;
@@ -372,11 +371,47 @@ public class PhysicalPlan implements Serializable
     for (Map.Entry<PTOperator, Operator> operEntry : this.newOpers.entrySet()) {
       initCheckpoint(operEntry.getKey(), operEntry.getValue(), Checkpoint.INITIAL_CHECKPOINT);
     }
+    
+    updateAntiAffinityListContainers();
     // request initial deployment
     ctx.deploy(Collections.<PTContainer>emptySet(), Collections.<PTOperator>emptySet(), Sets.newHashSet(containers), deployOperators);
     this.newOpers.clear();
     this.deployOpers.clear();
     this.undeployOpers.clear();
+  }
+
+  private void updateAntiAffinityListContainers()
+  {
+    Map<String, List<PTContainer>> operatorNameToContainerRequestMapping = new HashMap();
+    for (PTContainer container : containers) {      
+      for (PTOperator operator : container.getOperators()) {
+        if (!operatorNameToContainerRequestMapping.containsKey(operator.getName())) {
+          operatorNameToContainerRequestMapping.put(operator.getName(), new ArrayList<PTContainer>());
+        }
+        operatorNameToContainerRequestMapping.get(operator.getName()).add(container);
+      }
+    }
+    
+    for (PTContainer container : containers) {      
+     if(container.getAntiAffinityOperators() == null || container.getAntiAffinityOperators().isEmpty()) {
+       continue;
+     }
+     Set<PTContainer> containersList = container.getAntiAffinityContainers();     
+     for(String operator : container.getAntiAffinityOperators()) {
+       List<PTContainer> containersWithAntiAffinity = operatorNameToContainerRequestMapping.get(operator);
+       if(containersWithAntiAffinity.contains(container)) {         
+         // Anti-affinity between partitions of same operator, remove current container from list
+         containersWithAntiAffinity.remove(container);
+       } 
+       
+       containersList.addAll(containersWithAntiAffinity);
+       
+       // Update anti-affinity list of these containers as well
+       for(PTContainer c : containersList) {
+         c.getAntiAffinityContainers().add(container);
+       }
+     }
+    }
   }
 
   private void updatePartitionsInfoForPersistOperator(LogicalPlan dag)

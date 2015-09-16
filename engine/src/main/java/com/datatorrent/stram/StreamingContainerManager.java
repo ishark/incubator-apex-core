@@ -1206,6 +1206,12 @@ public class StreamingContainerManager implements PlanContext
 
   }
 
+  public void moveContainerToPendingState(PTContainer container)
+  {
+    pendingAllocation.add(container);
+    container.setState(PTContainer.State.NEW);
+  }
+
   /**
    * Assign operators to allocated container resource.
    *

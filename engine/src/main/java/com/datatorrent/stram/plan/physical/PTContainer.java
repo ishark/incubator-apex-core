@@ -17,8 +17,10 @@ package com.datatorrent.stram.plan.physical;
 
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Set;
 
 import com.esotericsoftware.kryo.KryoException;
 import com.esotericsoftware.kryo.io.Input;
@@ -160,6 +162,7 @@ public class PTContainer implements java.io.Serializable
   private int requiredVCores;
   private int allocatedVCores;
   private List<String> antiAffinityOperators;
+  private Set<PTContainer> antiAffinityContainers = new HashSet<PTContainer>();
   private final PhysicalPlan plan;
   private final int seq;
   List<PTOperator> operators = new ArrayList<PTOperator>();
@@ -314,5 +317,15 @@ public class PTContainer implements java.io.Serializable
   public void setAntiAffinityOperators(List<String> antiAffinityOperators)
   {
     this.antiAffinityOperators = antiAffinityOperators;
+  }
+
+  public Set<PTContainer> getAntiAffinityContainers()
+  {
+    return antiAffinityContainers;
+  }
+
+  public void setAntiAffinityContainers(Set<PTContainer> antiAffinityContainers)
+  {
+    this.antiAffinityContainers = antiAffinityContainers;
   }
 }
