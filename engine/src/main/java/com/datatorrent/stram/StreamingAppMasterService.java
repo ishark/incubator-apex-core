@@ -896,7 +896,7 @@ public class StreamingAppMasterService extends CompositeService
 
       if (currentRequestsSet != null) {
         for (ContainerStartRequest csr : currentRequestsSet) {
-          if (!containerToAllocatedContainerMapping.containsKey(csr.container)) {
+          if (containerToAllocatedContainerMapping.containsKey(csr.container)) {
             PTContainer currentPTContainer = csr.container;
             Container container = containerToAllocatedContainerMapping.get(currentPTContainer);
             if (containersToRelease.contains(currentPTContainer)) {
