@@ -84,6 +84,7 @@ import com.datatorrent.stram.security.StramDelegationTokenIdentifier;
 import com.datatorrent.stram.security.StramDelegationTokenManager;
 import com.datatorrent.stram.security.StramUserLogin;
 import com.datatorrent.stram.security.StramWSFilterInitializer;
+import com.datatorrent.stram.util.VersionInfo;
 import com.datatorrent.stram.webapp.AppInfo;
 import com.datatorrent.stram.webapp.StramWebApp;
 
@@ -500,6 +501,7 @@ public class StreamingAppMasterService extends CompositeService
   protected void serviceInit(Configuration conf) throws Exception
   {
     LOG.info("Application master" + ", appId=" + appAttemptID.getApplicationId().getId() + ", clustertimestamp=" + appAttemptID.getApplicationId().getClusterTimestamp() + ", attemptId=" + appAttemptID.getAttemptId());
+    LOG.info("Apex Version" + VersionInfo.getVersion() + " " + VersionInfo.getDate() + " " + VersionInfo.getRevision());
 
     FileInputStream fis = new FileInputStream("./" + LogicalPlan.SER_FILE_NAME);
     try {
