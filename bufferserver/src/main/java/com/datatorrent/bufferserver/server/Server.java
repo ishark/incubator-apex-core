@@ -43,6 +43,7 @@ import org.slf4j.LoggerFactory;
 import com.datatorrent.bufferserver.internal.DataList;
 import com.datatorrent.bufferserver.internal.FastDataList;
 import com.datatorrent.bufferserver.internal.LogicalNode;
+import com.datatorrent.bufferserver.packet.MessageType;
 import com.datatorrent.bufferserver.packet.PayloadTuple;
 import com.datatorrent.bufferserver.packet.PublishRequestTuple;
 import com.datatorrent.bufferserver.packet.PurgeRequestTuple;
@@ -58,7 +59,8 @@ import com.datatorrent.netlet.Listener.ServerListener;
 import com.datatorrent.netlet.util.VarInt;
 
 /**
- * The buffer server application<p>
+ * The buffer server application
+ * <p>
  * <br>
  *
  * @since 0.3.2
@@ -72,13 +74,14 @@ public class Server implements ServerListener
   private Storage storage;
   private EventLoop eventloop;
   private InetSocketAddress address;
-  private final ExecutorService serverHelperExecutor;
+  protected final ExecutorService serverHelperExecutor;
   private final ExecutorService storageHelperExecutor;
 
   private byte[] authToken;
 
   /**
-   * @param port - port number to bind to or 0 to auto select a free port
+   * @param port
+   *          - port number to bind to or 0 to auto select a free port
    */
   public Server(int port)
   {
@@ -102,8 +105,8 @@ public class Server implements ServerListener
   @Override
   public synchronized void registered(SelectionKey key)
   {
-    ServerSocketChannel channel = (ServerSocketChannel)key.channel();
-    address = (InetSocketAddress)channel.socket().getLocalSocketAddress();
+    ServerSocketChannel channel = (ServerSocketChannel) key.channel();
+    address = (InetSocketAddress) channel.socket().getLocalSocketAddress();
     logger.info("Server started listening at {}", address);
     notifyAll();
   }
@@ -228,7 +231,8 @@ public class Server implements ServerListener
     // Check if there is a logical node of this type, if not create it.
     LogicalNode ln;
     if (subscriberGroups.containsKey(type)) {
-      //logger.debug("adding to exiting group = {}", subscriberGroups.get(type));
+      // logger.debug("adding to exiting group = {}",
+      // subscriberGroups.get(type));
       /*
        * close previous connection with the same identifier which is guaranteed to be unique.
        */
@@ -249,18 +253,15 @@ public class Server implements ServerListener
       DataList dl;
       if (publisherBuffers.containsKey(upstream_identifier)) {
         dl = publisherBuffers.get(upstream_identifier);
-        //logger.debug("old list = {}", dl);
+        // logger.debug("old list = {}", dl);
       } else {
         dl = Tuple.FAST_VERSION.equals(request.getVersion()) ? new FastDataList(upstream_identifier, blockSize, numberOfCacheBlocks) : new DataList(upstream_identifier, blockSize, numberOfCacheBlocks);
         publisherBuffers.put(upstream_identifier, dl);
-        //logger.debug("new list = {}", dl);
+        // logger.debug("new list = {}", dl);
       }
 
-      long skipWindowId = (long)request.getBaseSeconds() << 32 | request.getWindowId();
-      ln = new LogicalNode(upstream_identifier,
-                           type,
-                           dl.newIterator(identifier, skipWindowId),
-                           skipWindowId);
+      long skipWindowId = (long) request.getBaseSeconds() << 32 | request.getWindowId();
+      ln = new LogicalNode(upstream_identifier, type, dl.newIterator(identifier, skipWindowId), skipWindowId);
 
       int mask = request.getMask();
       if (mask != 0) {
@@ -331,7 +332,7 @@ public class Server implements ServerListener
   public void handleException(Exception cce, EventLoop el)
   {
     if (cce instanceof RuntimeException) {
-      throw (RuntimeException)cce;
+      throw (RuntimeException) cce;
     }
 
     throw new RuntimeException(cce);
@@ -365,9 +366,10 @@ public class Server implements ServerListener
     }
   }
 
-  class UnidentifiedClient extends SeedDataClient
+
+  public class UnidentifiedClient extends SeedDataClient
   {
-    boolean ignore;
+    protected boolean ignore;
 
     @Override
     public void onMessage(byte[] buffer, int offset, int size)
@@ -378,120 +380,121 @@ public class Server implements ServerListener
 
       Tuple request = Tuple.getTuple(buffer, offset, size);
       switch (request.getType()) {
-        case PUBLISHER_REQUEST:
+      case PUBLISHER_REQUEST:
 
-          /*
-           * unregister the unidentified client since its job is done!
-           */
-          unregistered(key);
-          logger.info("Received publisher request: {}", request);
-          PublishRequestTuple publisherRequest = (PublishRequestTuple)request;
+        /*
+         * unregister the unidentified client since its job is done!
+         */
+        unregistered(key);
+        logger.info("Received publisher request: {}", request);
+        PublishRequestTuple publisherRequest = (PublishRequestTuple) request;
 
-          DataList dl = handlePublisherRequest(publisherRequest, this);
-          dl.setAutoFlushExecutor(serverHelperExecutor);
+        DataList dl = handlePublisherRequest(publisherRequest, this);
+        dl.setAutoFlushExecutor(serverHelperExecutor);
 
-          Publisher publisher;
-          if (publisherRequest.getVersion().equals(Tuple.FAST_VERSION)) {
-            publisher = new Publisher(dl, (long)request.getBaseSeconds() << 32 | request.getWindowId())
-            {
-              @Override
-              public int readSize()
-              {
-                if (writeOffset - readOffset < 2) {
-                  return -1;
-                }
-
-                short s = buffer[readOffset++];
-                return s | (buffer[readOffset++] << 8);
-              }
-
-            };
-          } else {
-            publisher = new Publisher(dl, (long)request.getBaseSeconds() << 32 | request.getWindowId());
-          }
-
-          key.attach(publisher);
-          key.interestOps(SelectionKey.OP_READ);
-          publisher.registered(key);
-
-          int len = writeOffset - readOffset - size;
-          if (len > 0) {
-            publisher.transferBuffer(this.buffer, readOffset + size, len);
-          }
-          ignore = true;
-
-          break;
-
-        case SUBSCRIBER_REQUEST:
-          /*
-           * unregister the unidentified client since its job is done!
-           */
-          unregistered(key);
-          ignore = true;
-          logger.info("Received subscriber request: {}", request);
-
-          SubscribeRequestTuple subscriberRequest = (SubscribeRequestTuple)request;
-          AbstractLengthPrependerClient subscriber;
-
-//          /* for backward compatibility - set the buffer size to 16k - EXPERIMENTAL */
-          int bufferSize = subscriberRequest.getBufferSize();
-//          if (bufferSize == 0) {
-//            bufferSize = 16 * 1024;
-//          }
-          if (subscriberRequest.getVersion().equals(Tuple.FAST_VERSION)) {
-            subscriber = new Subscriber(subscriberRequest.getStreamType(), subscriberRequest.getMask(), subscriberRequest.getPartitions(), bufferSize);
-          } else {
-            subscriber = new Subscriber(subscriberRequest.getStreamType(), subscriberRequest.getMask(), subscriberRequest.getPartitions(), bufferSize)
-            {
-              @Override
-              public int readSize()
-              {
-                if (writeOffset - readOffset < 2) {
-                  return -1;
-                }
-
-                short s = buffer[readOffset++];
-                return s | (buffer[readOffset++] << 8);
-              }
-
-            };
-          }
-          key.attach(subscriber);
-          key.interestOps(SelectionKey.OP_WRITE | SelectionKey.OP_READ);
-          subscriber.registered(key);
-
-          final LogicalNode logicalNode = handleSubscriberRequest(subscriberRequest, subscriber);
-          serverHelperExecutor.submit(new Runnable()
+        Publisher publisher;
+        if (publisherRequest.getVersion().equals(Tuple.FAST_VERSION)) {
+          publisher = new Publisher(dl, (long) request.getBaseSeconds() << 32 | request.getWindowId())
           {
             @Override
-            public void run()
+            public int readSize()
             {
-              logicalNode.catchUp();
+              if (writeOffset - readOffset < 2) {
+                return -1;
+              }
+
+              short s = buffer[readOffset++];
+              return s | (buffer[readOffset++] << 8);
             }
 
-          });
-          break;
+          };
+        } else {
+          publisher = new Publisher(dl, (long) request.getBaseSeconds() << 32 | request.getWindowId());
+        }
 
-        case PURGE_REQUEST:
-          logger.info("Received purge request: {}", request);
-          try {
-            handlePurgeRequest((PurgeRequestTuple)request, this);
-          } catch (IOException io) {
-            throw new RuntimeException(io);
+        key.attach(publisher);
+        key.interestOps(SelectionKey.OP_READ);
+        publisher.registered(key);
+
+        int len = writeOffset - readOffset - size;
+        if (len > 0) {
+          publisher.transferBuffer(this.buffer, readOffset + size, len);
+        }
+        ignore = true;
+
+        break;
+
+      case SUBSCRIBER_REQUEST:
+        /*
+         * unregister the unidentified client since its job is done!
+         */
+        unregistered(key);
+        ignore = true;
+        logger.info("Received subscriber request: {}", request);
+
+        SubscribeRequestTuple subscriberRequest = (SubscribeRequestTuple) request;
+        AbstractLengthPrependerClient subscriber;
+
+        // /* for backward compatibility - set the buffer size to 16k -
+        // EXPERIMENTAL */
+        int bufferSize = subscriberRequest.getBufferSize();
+        // if (bufferSize == 0) {
+        // bufferSize = 16 * 1024;
+        // }
+        if (subscriberRequest.getVersion().equals(Tuple.FAST_VERSION)) {
+          subscriber = new Subscriber(subscriberRequest.getStreamType(), subscriberRequest.getMask(), subscriberRequest.getPartitions(), bufferSize);
+        } else {
+          subscriber = new Subscriber(subscriberRequest.getStreamType(), subscriberRequest.getMask(), subscriberRequest.getPartitions(), bufferSize)
+          {
+            @Override
+            public int readSize()
+            {
+              if (writeOffset - readOffset < 2) {
+                return -1;
+              }
+
+              short s = buffer[readOffset++];
+              return s | (buffer[readOffset++] << 8);
+            }
+
+          };
+        }
+        key.attach(subscriber);
+        key.interestOps(SelectionKey.OP_WRITE | SelectionKey.OP_READ);
+        subscriber.registered(key);
+
+        final LogicalNode logicalNode = handleSubscriberRequest(subscriberRequest, subscriber);
+        serverHelperExecutor.submit(new Runnable()
+        {
+          @Override
+          public void run()
+          {
+            logicalNode.catchUp();
           }
-          break;
 
-        case RESET_REQUEST:
-          logger.info("Received reset all request: {}", request);
-          try {
-            handleResetRequest((ResetRequestTuple)request, this);
-          } catch (IOException io) {
-            throw new RuntimeException(io);
-          }
-          break;
+        });
+        break;
 
-        default:
-          throw new RuntimeException("unexpected message: " + request.toString());
+      case PURGE_REQUEST:
+        logger.info("Received purge request: {}", request);
+        try {
+          handlePurgeRequest((PurgeRequestTuple) request, this);
+        } catch (IOException io) {
+          throw new RuntimeException(io);
+        }
+        break;
+
+      case RESET_REQUEST:
+        logger.info("Received reset all request: {}", request);
+        try {
+          handleResetRequest((ResetRequestTuple) request, this);
+        } catch (IOException io) {
+          throw new RuntimeException(io);
+        }
+        break;
+
+      default:
+        throw new RuntimeException("unexpected message: " + request.toString());
       }
     }
 
@@ -542,7 +545,7 @@ public class Server implements ServerListener
 
     private void teardown()
     {
-      //logger.debug("Teardown is being called {}", torndown, new Exception());
+      // logger.debug("Teardown is being called {}", torndown, new Exception());
       if (torndown) {
         return;
       }
@@ -593,17 +596,24 @@ public class Server implements ServerListener
     @Override
     public void onMessage(byte[] buffer, int offset, int size)
     {
-      //if (buffer[offset] == MessageType.BEGIN_WINDOW_VALUE || buffer[offset] == MessageType.END_WINDOW_VALUE) {
-      //  logger.debug("server received {}", Tuple.getTuple(buffer, offset, size));
-      //}
+      // if (buffer[offset] == MessageType.BEGIN_WINDOW_VALUE || buffer[offset]
+      // == MessageType.END_WINDOW_VALUE) {
+      // logger.debug("server received {}", Tuple.getTuple(buffer, offset,
+      // size));
+      // }
       dirty = true;
     }
 
     /**
-     * Schedules a task to conditionally resume I/O channel read operations. No-op if {@linkplain java.nio.channels.SelectionKey#OP_READ OP_READ}
-     * is already set in the key {@linkplain java.nio.channels.SelectionKey#interestOps() interestOps}. Otherwise, calls {@linkplain #read(int) read(0)}
-     * to process data left in the Publisher read buffer and registers {@linkplain java.nio.channels.SelectionKey#OP_READ OP_READ} in the key
+     * Schedules a task to conditionally resume I/O channel read operations.
+     * No-op if {@linkplain java.nio.channels.SelectionKey#OP_READ OP_READ} is
+     * already set in the key
      * {@linkplain java.nio.channels.SelectionKey#interestOps() interestOps}.
+     * Otherwise, calls {@linkplain #read(int) read(0)} to process data left in
+     * the Publisher read buffer and registers
+     * {@linkplain java.nio.channels.SelectionKey#OP_READ OP_READ} in the key
+     * {@linkplain java.nio.channels.SelectionKey#interestOps() interestOps}.
+     * 
      * @return true
      */
     @Override
@@ -637,36 +647,36 @@ public class Server implements ServerListener
 
     private boolean readExt(int len)
     {
-      //logger.debug("read {} bytes", len);
+      // logger.debug("read {} bytes", len);
       writeOffset += len;
       do {
         if (size <= 0) {
           switch (size = readSize()) {
-            case -1:
-              if (writeOffset == buffer.length) {
-                if (readOffset > writeOffset - 5) {
-                  dirty = false;
-                  datalist.flush(writeOffset);
-                  /*
-                   * if the data is not corrupt, we are limited by space to receive full varint.
-                   * so we allocate a new byteBuffer and copy over the partially written data to the
-                   * new byteBuffer and start as if we always had full room but not enough data.
-                   */
-                  if (!switchToNewBufferOrSuspendRead(buffer, readOffset)) {
-                    return false;
-                  }
-                }
-              } else if (dirty) {
+          case -1:
+            if (writeOffset == buffer.length) {
+              if (readOffset > writeOffset - 5) {
                 dirty = false;
                 datalist.flush(writeOffset);
+                /*
+                 * if the data is not corrupt, we are limited by space to receive full varint.
+                 * so we allocate a new byteBuffer and copy over the partially written data to the
+                 * new byteBuffer and start as if we always had full room but not enough data.
+                 */
+                if (!switchToNewBufferOrSuspendRead(buffer, readOffset)) {
+                  return false;
+                }
               }
-              return true;
+            } else if (dirty) {
+              dirty = false;
+              datalist.flush(writeOffset);
+            }
+            return true;
 
-            case 0:
-              continue;
+          case 0:
+            continue;
 
-            default:
-              break;
+          default:
+            break;
           }
         }
 
@@ -693,8 +703,7 @@ public class Server implements ServerListener
           }
           return true;
         }
-      }
-      while (true);
+      } while (true);
     }
 
     private boolean switchToNewBufferOrSuspendRead(final byte[] array, final int offset)
@@ -756,7 +765,7 @@ public class Server implements ServerListener
 
     private void teardown()
     {
-      //logger.debug("Teardown is being called {}", torndown, new Exception());
+      // logger.debug("Teardown is being called {}", torndown, new Exception());
       if (torndown) {
         return;
       }
@@ -770,8 +779,10 @@ public class Server implements ServerListener
        */
 
       /**
-       * since the publisher server died, the queue which it was using would stop pumping the data unless a new publisher comes up with the same name. We leave
-       * it to the stream to decide when to bring up a new node with the same identifier as the one which just died.
+       * since the publisher server died, the queue which it was using would
+       * stop pumping the data unless a new publisher comes up with the same
+       * name. We leave it to the stream to decide when to bring up a new node
+       * with the same identifier as the one which just died.
        */
       if (publisherChannels.containsValue(this)) {
         final Iterator<Entry<String, AbstractLengthPrependerClient>> i = publisherChannels.entrySet().iterator();
@@ -832,8 +843,7 @@ public class Server implements ServerListener
         read(remainingCapacity);
 
         offset += remainingCapacity;
-      }
-      while ((len -= remainingCapacity) > 0);
+      } while ((len -= remainingCapacity) > 0);
     }
   }
 
