@@ -72,7 +72,7 @@ public class Server implements ServerListener
   private Storage storage;
   private EventLoop eventloop;
   private InetSocketAddress address;
-  private final ExecutorService serverHelperExecutor;
+  protected final ExecutorService serverHelperExecutor;
   private final ExecutorService storageHelperExecutor;
 
   private byte[] authToken;
@@ -194,7 +194,7 @@ public class Server implements ServerListener
     ctx.write(tuple);
   }
 
-  private void handleResetRequest(ResetRequestTuple request, final AbstractLengthPrependerClient ctx) throws IOException
+  protected void handleResetRequest(ResetRequestTuple request, final AbstractLengthPrependerClient ctx) throws IOException
   {
     DataList dl;
     dl = publisherBuffers.remove(request.getIdentifier());
@@ -214,6 +214,11 @@ public class Server implements ServerListener
     final byte[] tuple = PayloadTuple.getSerializedTuple(0, message.length);
     System.arraycopy(message, 0, tuple, tuple.length - message.length, message.length);
     ctx.write(tuple);
+  }
+
+  protected long getWindowId(Tuple request)
+  {
+    return (long)request.getBaseSeconds() << 32 | request.getWindowId();
   }
 
   /**

@@ -37,6 +37,7 @@ import com.datatorrent.bufferserver.packet.BeginWindowTuple;
 import com.datatorrent.bufferserver.packet.MessageType;
 import com.datatorrent.bufferserver.packet.ResetWindowTuple;
 import com.datatorrent.bufferserver.packet.Tuple;
+import com.datatorrent.bufferserver.server.PublisherReceiverThread;
 import com.datatorrent.bufferserver.storage.Storage;
 import com.datatorrent.bufferserver.util.BitVector;
 import com.datatorrent.bufferserver.util.Codec;
@@ -71,6 +72,7 @@ public class DataList
   protected int processingOffset;
   protected long baseSeconds;
   private final Set<AbstractClient> suspendedClients = newHashSet();
+  private final Set<PublisherReceiverThread> suspendedPublisherThreads = newHashSet();
   private final AtomicInteger numberOfInMemBlockPermits;
   private MutableInt nextOffset = new MutableInt();
   private Future<?> future;
@@ -232,10 +234,13 @@ public class DataList
     //    nextOffset.integer, writeOffset);
     flush:
     do {
-      while (size == 0) {
+      if (size == 0) {
+        if (processingOffset == writeOffset) {
+          break;
+        }
         size = VarInt.read(last.data, processingOffset, writeOffset, nextOffset);
         if (nextOffset.integer > -5 && nextOffset.integer < 1) {
-          if (writeOffset == last.data.length) {
+          if (writeOffset == last.data.length || processingOffset == writeOffset) {
             nextOffset.integer = 0;
             processingOffset = 0;
             size = 0;
@@ -244,9 +249,8 @@ public class DataList
         } else if (nextOffset.integer == -5) {
           throw new RuntimeException("problemo!");
         }
+        processingOffset = nextOffset.integer;
       }
-
-      processingOffset = nextOffset.integer;
 
       if (processingOffset + size <= writeOffset) {
         switch (last.data[processingOffset]) {
@@ -273,7 +277,7 @@ public class DataList
         processingOffset += size;
         size = 0;
       } else {
-        if (writeOffset == last.data.length) {
+        if (writeOffset == last.data.length || processingOffset == writeOffset) {
           nextOffset.integer = 0;
           processingOffset = 0;
           size = 0;
@@ -425,6 +429,14 @@ public class DataList
     }
   }
 
+  public boolean suspendRead(final PublisherReceiverThread client)
+  {
+    synchronized (suspendedPublisherThreads) {
+      client.suspendThread();
+      return suspendedPublisherThreads.add(client);
+    }
+  }
+
   public boolean resumeSuspendedClients(final int numberOfInMemBlockPermits)
   {
     boolean resumedSuspendedClients = false;
@@ -432,6 +444,12 @@ public class DataList
       synchronized (suspendedClients) {
         for (AbstractClient client : suspendedClients) {
           resumedSuspendedClients |= client.resumeReadIfSuspended();
+        }
+        suspendedClients.clear();
+      }
+      synchronized (suspendedPublisherThreads) {
+        for (PublisherReceiverThread client : suspendedPublisherThreads) {
+          client.resumeThread();
         }
         suspendedClients.clear();
       }
@@ -449,6 +467,7 @@ public class DataList
 
   public byte[] newBuffer()
   {
+    logger.info("New buffer allocation");
     return new byte[blockSize];
   }
 

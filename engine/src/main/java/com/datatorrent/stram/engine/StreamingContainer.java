@@ -43,7 +43,6 @@ import java.util.concurrent.CountDownLatch;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang.exception.ExceptionUtils;
 import org.apache.hadoop.conf.Configuration;
@@ -71,7 +70,6 @@ import com.datatorrent.api.StreamCodec;
 import com.datatorrent.api.StreamingApplication;
 import com.datatorrent.api.StringCodec;
 import com.datatorrent.api.annotation.Stateless;
-import com.datatorrent.bufferserver.server.Server;
 import com.datatorrent.bufferserver.storage.DiskStorage;
 import com.datatorrent.bufferserver.util.Codec;
 import com.datatorrent.common.util.ScheduledThreadPoolExecutor;
@@ -109,6 +107,7 @@ import com.datatorrent.stram.plan.logical.Operators.PortMappingDescriptor;
 import com.datatorrent.stram.plan.logical.StreamCodecWrapperForPersistance;
 import com.datatorrent.stram.security.StramUserLogin;
 import com.datatorrent.stram.stream.BufferServerPublisher;
+import com.datatorrent.stram.stream.BufferServerQueuePublisher;
 import com.datatorrent.stram.stream.BufferServerSubscriber;
 import com.datatorrent.stram.stream.FastPublisher;
 import com.datatorrent.stram.stream.FastSubscriber;
@@ -117,6 +116,7 @@ import com.datatorrent.stram.stream.MuxStream;
 import com.datatorrent.stram.stream.OiOStream;
 import com.datatorrent.stram.stream.PartitionAwareSink;
 import com.datatorrent.stram.stream.PartitionAwareSinkForPersistence;
+import com.datatorrent.stram.stream.QueueServer;
 
 import net.engio.mbassy.bus.MBassador;
 import net.engio.mbassy.bus.config.BusConfiguration;
@@ -155,7 +155,7 @@ public class StreamingContainer extends YarnContainerMain
   private long firstWindowMillis;
   private int windowWidthMillis;
   private InetSocketAddress bufferServerAddress;
-  private com.datatorrent.bufferserver.server.Server bufferServer;
+  public com.datatorrent.bufferserver.server.Server bufferServer;
   private int checkpointWindowCount;
   private boolean fastPublisherSubscriber;
   private StreamingContainerContext containerContext;
@@ -189,6 +189,7 @@ public class StreamingContainer extends YarnContainerMain
   @SuppressWarnings("unchecked")
   public void setup(StreamingContainerContext ctx)
   {
+    logger.info("Setup invoked for Streaming Container..");
     containerContext = ctx;
 
     /* add a request factory local to this container */
@@ -213,6 +214,7 @@ public class StreamingContainer extends YarnContainerMain
         logger.debug("buffer server memory {}", bufferServerRAM);
         int blockCount;
         int blocksize;
+        logger.info("deploying Buffer server.....");
         if (bufferServerRAM < ContainerContext.BUFFER_SERVER_MB.defaultValue) {
           blockCount = 8;
           blocksize = bufferServerRAM / blockCount;
@@ -223,8 +225,10 @@ public class StreamingContainer extends YarnContainerMain
           blocksize = 64;
           blockCount = bufferServerRAM / blocksize;
         }
+        logger.info("Setting Buffer server.....");
         // start buffer server, if it was not set externally
-        bufferServer = new Server(0, blocksize * 1024 * 1024, blockCount);
+        bufferServer = new QueueServer(0, blocksize * 1024 * 1024, blockCount);
+        logger.info("Setting Buffer server.. done...");
         bufferServer.setAuthToken(ctx.getValue(StreamingContainerContext.BUFFER_SERVER_TOKEN));
         if (ctx.getValue(Context.DAGContext.BUFFER_SPOOLING)) {
           bufferServer.setSpoolStorage(new DiskStorage());
@@ -232,6 +236,8 @@ public class StreamingContainer extends YarnContainerMain
         SocketAddress bindAddr = bufferServer.run(eventloop);
         logger.debug("Buffer server started: {}", bindAddr);
         this.bufferServerAddress = NetUtils.getConnectAddress(((InetSocketAddress)bindAddr));
+      } else {
+        logger.info("Not deploying buffer server...");
       }
     } catch (IOException ex) {
       logger.warn("deploy request failed due to {}", ex);
@@ -569,14 +575,15 @@ public class StreamingContainer extends YarnContainerMain
 
   public void teardown()
   {
+    logger.debug("Teardown invoked for operator");
     operateListeners(containerContext, false);
 
     deactivate();
 
     assert (streams.isEmpty());
-
+    logger.info("Stopping event bus.... ");
     eventBus.shutdown();
-
+    logger.info("Stopped event bus.... ");
     nodes.clear();
 
     HashSet<WindowGenerator> gens = new HashSet<WindowGenerator>();
@@ -587,8 +594,10 @@ public class StreamingContainer extends YarnContainerMain
     }
 
     if (bufferServer != null) {
+      logger.info("Stopping buffer server.... ");
       eventloop.stop(bufferServer);
       eventloop.stop();
+      logger.info("Stopped buffer server.... ");
     }
 
     gens.clear();
@@ -858,7 +867,9 @@ public class StreamingContainer extends YarnContainerMain
     for (OperatorDeployInfo o : nodeList) {
       operatorMap.put(o.id, o);
     }
+    logger.info("Activating deploy... {}", nodeList);
     activate(operatorMap, newStreams);
+    logger.info("Completed deploy... {}", nodeList);
   }
 
   public static String getUnifierInputPortName(String portName, int sourceNodeId, String sourcePortName)
@@ -921,7 +932,13 @@ public class StreamingContainer extends YarnContainerMain
       bssc.setBufferServerAddress(new InetSocketAddress(InetAddress.getByName(null), nodi.bufferServerPort));
     }
 
-    Stream publisher = fastPublisherSubscriber ? new FastPublisher(connIdentifier, queueCapacity * 256) : new BufferServerPublisher(connIdentifier, queueCapacity);
+    Stream publisher;
+    if (bufferServer != null && bufferServer instanceof QueueServer) {
+      publisher = new BufferServerQueuePublisher(connIdentifier, queueCapacity, (QueueServer)bufferServer);
+    } else {
+      publisher = fastPublisherSubscriber ? new FastPublisher(connIdentifier, queueCapacity * 256) : new BufferServerPublisher(connIdentifier, queueCapacity);
+    }
+    //fastPublisherSubscriber ? new FastPublisher(connIdentifier, queueCapacity * 256) : new BufferServerPublisher(connIdentifier, queueCapacity);
     return new HashMap.SimpleEntry<String, ComponentContextPair<Stream, StreamContext>>(sinkIdentifier, new ComponentContextPair<Stream, StreamContext>(publisher, bssc));
   }
 
@@ -1490,8 +1507,7 @@ public class StreamingContainer extends YarnContainerMain
   protected Checkpoint getFinishedCheckpoint(OperatorDeployInfo ndi)
   {
     Checkpoint checkpoint;
-    if (ndi.contextAttributes != null
-      && ndi.contextAttributes.get(OperatorContext.PROCESSING_MODE) == ProcessingMode.AT_MOST_ONCE) {
+    if (ndi.contextAttributes != null && ndi.contextAttributes.get(OperatorContext.PROCESSING_MODE) == ProcessingMode.AT_MOST_ONCE) {
       long now = System.currentTimeMillis();
       long windowCount = WindowGenerator.getWindowCount(now, firstWindowMillis, firstWindowMillis);
 
@@ -1510,7 +1526,7 @@ public class StreamingContainer extends YarnContainerMain
       logger.debug("using {} on {} at {}", ProcessingMode.AT_MOST_ONCE, ndi.name, checkpoint);
     } else {
       checkpoint = ndi.checkpoint;
-      logger.debug("using {} on {} at {}", ndi.contextAttributes == null ? ProcessingMode.AT_LEAST_ONCE :
+      logger.debug("using {} on {} at {}", ndi.contextAttributes == null ? ProcessingMode.AT_LEAST_ONCE : 
         (ndi.contextAttributes.get(OperatorContext.PROCESSING_MODE) == null ? ProcessingMode.AT_LEAST_ONCE :
           ndi.contextAttributes.get(OperatorContext.PROCESSING_MODE)), ndi.name, checkpoint);
     }
