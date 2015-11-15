@@ -30,22 +30,20 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.apache.commons.lang3.SerializationUtils;
 import org.apache.hadoop.fs.FileContext;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.ipc.ProtocolSignature;
 import org.apache.hadoop.net.NetUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-import com.datatorrent.api.Context;
 import com.datatorrent.api.DAG;
 import com.datatorrent.api.LocalMode.Controller;
 import com.datatorrent.api.Operator;
 import com.datatorrent.bufferserver.server.Server;
 import com.datatorrent.bufferserver.storage.DiskStorage;
 import com.datatorrent.common.util.AsyncFSStorageAgent;
-import com.datatorrent.common.util.FSStorageAgent;
 import com.datatorrent.stram.StreamingContainerAgent.ContainerStartRequest;
 import com.datatorrent.stram.StreamingContainerManager.ContainerResource;
 import com.datatorrent.stram.api.StreamingContainerUmbilicalProtocol;
@@ -58,6 +56,7 @@ import com.datatorrent.stram.engine.WindowGenerator;
 import com.datatorrent.stram.plan.logical.LogicalPlan;
 import com.datatorrent.stram.plan.logical.LogicalPlan.OperatorMeta;
 import com.datatorrent.stram.plan.physical.PTOperator;
+import com.datatorrent.stram.stream.QueueServer;
 
 /**
  * Launcher for topologies in local mode within a single process.
@@ -74,12 +73,12 @@ public class StramLocalCluster implements Runnable, Controller
   private final UmbilicalProtocolLocalImpl umbilical;
   private InetSocketAddress bufferServerAddress;
   private boolean perContainerBufferServer;
-  private Server bufferServer = null;
   private final Map<String, LocalStreamingContainer> childContainers = new ConcurrentHashMap<String, LocalStreamingContainer>();
   private int containerSeq = 0;
   private boolean appDone = false;
   private final Map<String, StreamingContainer> injectShutdown = new ConcurrentHashMap<String, StreamingContainer>();
   private boolean heartbeatMonitoringEnabled = true;
+  public static Server bufferServer = null;
 
   public interface MockComponentFactory
   {
@@ -176,6 +175,7 @@ public class StramLocalCluster implements Runnable, Controller
     {
       LOG.debug("Got context: " + ctx);
       stramChild.setup(ctx);
+      stramChild.bufferServer = StramLocalCluster.bufferServer;
       boolean hasError = true;
       try {
         // main thread enters heartbeat loop
@@ -310,7 +310,7 @@ public class StramLocalCluster implements Runnable, Controller
 
     if (!perContainerBufferServer) {
       StreamingContainer.eventloop.start();
-      bufferServer = new Server(0, 1024 * 1024,8);
+      bufferServer = new QueueServer(0, 1024 * 1024,8);
       bufferServer.setSpoolStorage(new DiskStorage());
       SocketAddress bindAddr = bufferServer.run(StreamingContainer.eventloop);
       this.bufferServerAddress = ((InetSocketAddress)bindAddr);

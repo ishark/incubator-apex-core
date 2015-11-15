@@ -25,30 +25,37 @@ import java.util.concurrent.BlockingQueue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.datatorrent.netlet.util.DTThrowable;
+import com.datatorrent.bufferserver.packet.PublishRequestTuple;
+import com.datatorrent.bufferserver.packet.Tuple;
 import com.datatorrent.stram.engine.StreamContext;
 
-public class BufferServerQueuePublisher extends BufferServerPublisher 
+public class BufferServerQueuePublisher extends BufferServerPublisher
 {
   int queueCapacity;
   String sourceId;
-  
-  public BlockingQueue<byte[]> messageQueue = new ArrayBlockingQueue<byte[]>(queueCapacity);
-  
-  public BufferServerQueuePublisher(String sourceId, int queueCapacity)
+
+  public final BlockingQueue<byte[]> messageQueue;
+  QueueServer server;
+
+  public BufferServerQueuePublisher(String sourceId, int queueCapacity, QueueServer server)
   {
     super(sourceId, queueCapacity);
+    logger.debug("Instantiating BufferServerQueuePublisher");
     this.sourceId = sourceId;
     this.queueCapacity = queueCapacity;
+    this.messageQueue = new ArrayBlockingQueue<byte[]>(queueCapacity);
+    this.server = server;
   }
-  
+
   @Override
   public boolean write(byte[] array)
   {
+    // logger.debug("Writing data..");
     try {
       messageQueue.put(array);
     } catch (InterruptedException e) {
-      DTThrowable.wrapIfChecked(e);
+      // DTThrowable.wrapIfChecked(e);
+      logger.debug("Exiting publisher");
     }
     return true;
   }
@@ -58,18 +65,23 @@ public class BufferServerQueuePublisher extends BufferServerPublisher
    * @param context
    */
   @Override
-  @SuppressWarnings("unchecked")
   public void activate(StreamContext context)
   {
-    super.activate(context);
-    
-    // Establish connection to buffer server with queue
+    logger.info("Activating publisher..");
+    // super.activate(context);
+    logger.debug("source = {}", sourceId);
+    byte[] requestBytes = PublishRequestTuple.getSerializedRequest(null, sourceId, context.getFinishedWindowId());
+    PublishRequestTuple request = (PublishRequestTuple) Tuple.getTuple(requestBytes, 0, requestBytes.length);
+    logger.debug("request = {}", request);
+    server.handlePublisherRequest(request, messageQueue);
   }
 
   @Override
   public void deactivate()
   {
-    super.deactivate();
+    logger.info("Deactivating publisher..");
+    // super.deactivate();
+
     // Remove connection from buffer server queue
   }
 

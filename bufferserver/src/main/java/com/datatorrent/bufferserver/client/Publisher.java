@@ -52,6 +52,7 @@ public abstract class Publisher extends AuthClient
   {
     sendAuthenticate();
     write(PublishRequestTuple.getSerializedRequest(version, id, windowId));
+    logger.debug("Sending publisher request tuple...");
   }
 
   @Override

@@ -37,6 +37,7 @@ import com.datatorrent.bufferserver.packet.BeginWindowTuple;
 import com.datatorrent.bufferserver.packet.MessageType;
 import com.datatorrent.bufferserver.packet.ResetWindowTuple;
 import com.datatorrent.bufferserver.packet.Tuple;
+import com.datatorrent.bufferserver.server.PublisherReceiverThread;
 import com.datatorrent.bufferserver.storage.Storage;
 import com.datatorrent.bufferserver.util.BitVector;
 import com.datatorrent.bufferserver.util.Codec;
@@ -71,6 +72,7 @@ public class DataList
   protected int processingOffset;
   protected long baseSeconds;
   private final Set<AbstractClient> suspendedClients = newHashSet();
+  private final Set<PublisherReceiverThread> suspendedPublisherThreads = newHashSet();
   private final AtomicInteger numberOfInMemBlockPermits;
   private MutableInt nextOffset = new MutableInt();
   private Future<?> future;
@@ -416,6 +418,14 @@ public class DataList
     }
   }
 
+  public boolean suspendRead(final PublisherReceiverThread client)
+  {
+    synchronized (suspendedPublisherThreads) {
+      client.suspendThread();
+      return suspendedPublisherThreads.add(client);
+    }
+  }
+
   public boolean resumeSuspendedClients(final int numberOfInMemBlockPermits)
   {
     boolean resumedSuspendedClients = false;
@@ -423,6 +433,12 @@ public class DataList
       synchronized (suspendedClients) {
         for (AbstractClient client : suspendedClients) {
           resumedSuspendedClients |= client.resumeReadIfSuspended();
+        }
+        suspendedClients.clear();
+      }
+      synchronized (suspendedPublisherThreads) {
+        for (PublisherReceiverThread client : suspendedPublisherThreads) {
+          client.resumeThread();
         }
         suspendedClients.clear();
       }
