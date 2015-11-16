@@ -19,7 +19,7 @@
 package com.datatorrent.stram.stream;
 
 import java.io.IOException;
-import java.util.concurrent.BlockingQueue;
+import java.util.Queue;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.slf4j.Logger;
@@ -47,7 +47,7 @@ public class QueueServer extends Server
     super(port, blocksize, numberOfCacheBlocks);
   }
 
-  public synchronized void  disconnectPublisher(String sourceId) throws IOException
+  public synchronized void disconnectPublisher(String sourceId) throws IOException
   {
     PublisherReceiverThread thread = publisherThreads.get(sourceId);
     Thread t = receiverThreads.get(sourceId);
@@ -66,7 +66,7 @@ public class QueueServer extends Server
     disconnectPublisher(request.getIdentifier());
   }
 
-  public DataList handlePublisherRequest(PublishRequestTuple request, BlockingQueue<byte[]> messageQueue)
+  public DataList handlePublisherRequest(PublishRequestTuple request, Queue<byte[]> messageQueue)
   {
     logger.info("Handling publisher request... ");
     DataList dl = super.handlePublisherRequest(request, null);

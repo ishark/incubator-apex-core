@@ -20,22 +20,27 @@
 package com.datatorrent.stram.stream;
 
 import java.io.IOException;
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.BlockingQueue;
+import java.util.Queue;
+//import java.util.concurrent.ArrayBlockingQueue;
+//import java.util.concurrent.BlockingQueue;
 
+import org.jctools.queues.SpscArrayQueue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
 
 import com.datatorrent.bufferserver.packet.PublishRequestTuple;
 import com.datatorrent.bufferserver.packet.Tuple;
 import com.datatorrent.stram.engine.StreamContext;
+
+import static java.lang.Thread.sleep;
 
 public class BufferServerQueuePublisher extends BufferServerPublisher
 {
   int queueCapacity;
   String sourceId;
 
-  public final BlockingQueue<byte[]> messageQueue;
+  public final Queue<byte[]> messageQueue;
   QueueServer server;
 
   public BufferServerQueuePublisher(String sourceId, int queueCapacity, QueueServer server)
@@ -44,20 +49,23 @@ public class BufferServerQueuePublisher extends BufferServerPublisher
     logger.debug("Instantiating BufferServerQueuePublisher");
     this.sourceId = sourceId;
     this.queueCapacity = queueCapacity;
-    this.messageQueue = new ArrayBlockingQueue<byte[]>(queueCapacity);
-    // new SpscArrayQueue<byte[]>(queueCapacity);
+    logger.info("Queue capacity = {}", queueCapacity);
+    this.messageQueue = new SpscArrayQueue<byte[]>(queueCapacity);
+    // new ArrayBlockingQueue<byte[]>(queueCapacity);
     this.server = server;
   }
 
   @Override
   public boolean write(byte[] array)
   {
-    // logger.debug("Writing data..");
     try {
-      messageQueue.put(array);
+      while (!messageQueue.offer(array)) {
+        sleep(5);
+      }
     } catch (InterruptedException e) {
-      // DTThrowable.wrapIfChecked(e);
-      logger.debug("Exiting publisher");
+      // TODO Auto-generated catch block
+      // e.printStackTrace();
+      logger.debug("Thread interrupted in sleep");
     }
     return true;
   }
@@ -73,7 +81,7 @@ public class BufferServerQueuePublisher extends BufferServerPublisher
     // super.activate(context);
     logger.debug("source = {}", sourceId);
     byte[] requestBytes = PublishRequestTuple.getSerializedRequest(null, sourceId, context.getFinishedWindowId());
-    PublishRequestTuple request = (PublishRequestTuple) Tuple.getTuple(requestBytes, 0, requestBytes.length);
+    PublishRequestTuple request = (PublishRequestTuple)Tuple.getTuple(requestBytes, 0, requestBytes.length);
     logger.debug("request = {}", request);
     server.handlePublisherRequest(request, messageQueue);
   }

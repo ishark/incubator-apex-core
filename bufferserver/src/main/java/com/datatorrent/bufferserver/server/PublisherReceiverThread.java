@@ -19,8 +19,7 @@
 package com.datatorrent.bufferserver.server;
 
 import java.nio.ByteBuffer;
-import java.util.concurrent.BlockingQueue;
-
+import java.util.Queue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -36,7 +35,7 @@ public class PublisherReceiverThread implements Runnable
   private static final int INT_ARRAY_SIZE = 4096 - 5;
 
   DataList datalist;
-  BlockingQueue<byte[]> messageQueue;
+  Queue<byte[]> messageQueue;
 
   protected byte[] buffer;
   protected ByteBuffer byteBuffer;
@@ -45,7 +44,7 @@ public class PublisherReceiverThread implements Runnable
   //byte[] currentTuple;
   int tupleOffset;
 
-  public PublisherReceiverThread(BlockingQueue<byte[]> queue, DataList dl, long windowId)
+  public PublisherReceiverThread(Queue<byte[]> queue, DataList dl, long windowId)
   {
     this.buffer = dl.getBuffer(windowId);
     this.writeOffset = dl.getPosition();
@@ -61,14 +60,16 @@ public class PublisherReceiverThread implements Runnable
         while (suspended) {
           Thread.sleep(100);
         }
-        byte[] tuple = messageQueue.take();
-        // put the tuple in DL
-        writeToDataList(tuple);
+        byte[] tuple = messageQueue.poll();
+        if (tuple != null) {
+          // put the tuple in DL
+          writeToDataList(tuple);
+        }
       }
       if (shutdown) {
         // Read till queue is empty
         while (!messageQueue.isEmpty()) {
-          writeToDataList(messageQueue.take());
+          writeToDataList(messageQueue.poll());
         }
       }
     } catch (InterruptedException e) {
