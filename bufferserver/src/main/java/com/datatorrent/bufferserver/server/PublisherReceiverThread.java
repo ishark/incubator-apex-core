@@ -58,7 +58,6 @@ public class PublisherReceiverThread implements Runnable
   {
     try {
       while (!shutdown) {
-        //  logger.info("In loop....");
         while (suspended) {
           Thread.sleep(100);
         }
@@ -73,7 +72,7 @@ public class PublisherReceiverThread implements Runnable
         }
       }
     } catch (InterruptedException e) {
-      DTThrowable.wrapIfChecked(e);
+      logger.debug("Thread interrupted");
     } catch (Exception e) {
       DTThrowable.wrapIfChecked(e);
     }

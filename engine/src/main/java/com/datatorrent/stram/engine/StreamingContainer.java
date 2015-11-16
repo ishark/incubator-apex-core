@@ -575,14 +575,15 @@ public class StreamingContainer extends YarnContainerMain
 
   public void teardown()
   {
+    logger.debug("Teardown invoked for operator");
     operateListeners(containerContext, false);
 
     deactivate();
 
     assert (streams.isEmpty());
-
+    logger.info("Stopping event bus.... ");
     eventBus.shutdown();
-
+    logger.info("Stopped event bus.... ");
     nodes.clear();
 
     HashSet<WindowGenerator> gens = new HashSet<WindowGenerator>();
@@ -593,8 +594,10 @@ public class StreamingContainer extends YarnContainerMain
     }
 
     if (bufferServer != null) {
+      logger.info("Stopping buffer server.... ");
       eventloop.stop(bufferServer);
       eventloop.stop();
+      logger.info("Stopped buffer server.... ");
     }
 
     gens.clear();

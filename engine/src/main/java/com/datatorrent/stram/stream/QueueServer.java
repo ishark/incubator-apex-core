@@ -47,7 +47,7 @@ public class QueueServer extends Server
     super(port, blocksize, numberOfCacheBlocks);
   }
 
-  public void disconnectPublisher(String sourceId) throws IOException
+  public synchronized void  disconnectPublisher(String sourceId) throws IOException
   {
     PublisherReceiverThread thread = publisherThreads.get(sourceId);
     Thread t = receiverThreads.get(sourceId);

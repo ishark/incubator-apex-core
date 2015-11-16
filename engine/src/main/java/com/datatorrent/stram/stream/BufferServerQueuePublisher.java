@@ -19,6 +19,7 @@
 
 package com.datatorrent.stram.stream;
 
+import java.io.IOException;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 
@@ -44,6 +45,7 @@ public class BufferServerQueuePublisher extends BufferServerPublisher
     this.sourceId = sourceId;
     this.queueCapacity = queueCapacity;
     this.messageQueue = new ArrayBlockingQueue<byte[]>(queueCapacity);
+    // new SpscArrayQueue<byte[]>(queueCapacity);
     this.server = server;
   }
 
@@ -80,6 +82,12 @@ public class BufferServerQueuePublisher extends BufferServerPublisher
   public void deactivate()
   {
     logger.info("Deactivating publisher..");
+    try {
+      server.disconnectPublisher(sourceId);
+    } catch (IOException e) {
+      // TODO Auto-generated catch block
+      e.printStackTrace();
+    }
     // super.deactivate();
 
     // Remove connection from buffer server queue
