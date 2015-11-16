@@ -64,6 +64,8 @@ public class PublisherReceiverThread implements Runnable
         if (tuple != null) {
           // put the tuple in DL
           writeToDataList(tuple);
+        } else {
+          Thread.sleep(5);
         }
       }
       if (shutdown) {

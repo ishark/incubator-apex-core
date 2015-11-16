@@ -48,8 +48,10 @@ public class BufferServerQueuePublisher extends BufferServerPublisher
     super(sourceId, queueCapacity);
     logger.debug("Instantiating BufferServerQueuePublisher");
     this.sourceId = sourceId;
+    queueCapacity = 64000;
     this.queueCapacity = queueCapacity;
     logger.info("Queue capacity = {}", queueCapacity);
+
     this.messageQueue = new SpscArrayQueue<byte[]>(queueCapacity);
     // new ArrayBlockingQueue<byte[]>(queueCapacity);
     this.server = server;
