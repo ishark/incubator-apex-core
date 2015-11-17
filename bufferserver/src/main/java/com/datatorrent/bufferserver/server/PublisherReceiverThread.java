@@ -60,12 +60,15 @@ public class PublisherReceiverThread implements Runnable
         while (suspended) {
           Thread.sleep(100);
         }
-        
-        byte[] tuple = messageQueue.poll();
-        if (tuple != null) {
+
+        byte[] tuple;// = messageQueue.poll();
+        while ((tuple = messageQueue.poll()) != null) {
           // put the tuple in DL
+
           writeToDataList(tuple);
-        } else {
+
+        }
+        if (messageQueue.isEmpty()) {
           logger.info("Queue is empty.. sleeping");
           Thread.sleep(5);
         }
