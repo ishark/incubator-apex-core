@@ -60,13 +60,16 @@ public class PublisherReceiverThread implements Runnable
         while (suspended) {
           Thread.sleep(100);
         }
+        
         byte[] tuple = messageQueue.poll();
         if (tuple != null) {
           // put the tuple in DL
           writeToDataList(tuple);
         } else {
+          logger.info("Queue is empty.. sleeping");
           Thread.sleep(5);
         }
+        logger.info("Queue size = {} ", messageQueue.size());
       }
       if (shutdown) {
         // Read till queue is empty
@@ -90,7 +93,7 @@ public class PublisherReceiverThread implements Runnable
     writeBytesToDataList(intBuffer, intOffset, newOffset - intOffset);
     intOffset = newOffset;
 
-    //logger.info("Writing to data list...");
+    logger.info("Writing to data list...");
     //currentTuple = tuple;
     tupleOffset = 0;
     // TODO Auto-generated method stub

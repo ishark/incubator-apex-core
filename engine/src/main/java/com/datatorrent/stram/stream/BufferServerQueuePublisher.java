@@ -48,7 +48,7 @@ public class BufferServerQueuePublisher extends BufferServerPublisher
     super(sourceId, queueCapacity);
     logger.debug("Instantiating BufferServerQueuePublisher");
     this.sourceId = sourceId;
-    queueCapacity = 64000;
+    queueCapacity = 640000;
     this.queueCapacity = queueCapacity;
     logger.info("Queue capacity = {}", queueCapacity);
 
@@ -62,6 +62,7 @@ public class BufferServerQueuePublisher extends BufferServerPublisher
   {
     try {
       while (!messageQueue.offer(array)) {
+        logger.info("Sleeping for 5 ms.. Queue is full");
         sleep(5);
       }
     } catch (InterruptedException e) {
