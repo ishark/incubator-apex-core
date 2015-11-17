@@ -31,7 +31,7 @@ public class PublisherReceiverThread implements Runnable
   private volatile boolean shutdown = false;
   private volatile boolean suspended = false;
 
-//  private static final int INT_ARRAY_SIZE = 4096 - 5;
+  //  private static final int INT_ARRAY_SIZE = 4096 - 5;
 
   DataList datalist;
   Queue<byte[]> messageQueue;
@@ -40,7 +40,7 @@ public class PublisherReceiverThread implements Runnable
   protected ByteBuffer byteBuffer;
   protected int writeOffset;
   boolean flag = false;
-  //byte[] currentTuple;
+  byte[] currentTuple;
   int tupleOffset;
 
   public PublisherReceiverThread(Queue<byte[]> queue, DataList dl, long windowId)
@@ -61,13 +61,12 @@ public class PublisherReceiverThread implements Runnable
           Thread.sleep(100);
         }
 
-        byte[] tuple;// = messageQueue.poll();
+        byte[] tuple;
         while ((tuple = messageQueue.poll()) != null && !suspended) {
           // put the tuple in DL
-
           writeToDataList(tuple);
-
         }
+        datalist.flush(writeOffset);
         if (messageQueue.isEmpty()) {
           logger.info("Queue is empty.. sleeping");
           Thread.sleep(5);
@@ -89,50 +88,24 @@ public class PublisherReceiverThread implements Runnable
 
   private void writeToDataList(byte[] tuple)
   {
-    //    byte[] intBuffer = new byte[INT_ARRAY_SIZE + 5];
-    //    int intOffset = 0;
-    //    int newOffset = VarInt.write(tuple.length, intBuffer, intOffset);
-    //
-    //    int totalSize = tuple.length + newOffset - intOffset;
-    if (writeOffset + tuple.length < this.buffer.length) {
-      //    logger.info("writing {} {} {}", writeOffset, totalSize, this.buffer.length);
-      //writeBytesToDataList(intBuffer, intOffset, newOffset - intOffset);
-      // intOffset = newOffset;
-
-      //   logger.info("Writing to data list...");
-      //currentTuple = tuple;
-      //    tupleOffset = 0;
-      // TODO Auto-generated method stub
+    if (writeOffset + tuple.length <= this.buffer.length) {
       writeBytesToDataList(tuple, 0, tuple.length);
     } else {
-
+      datalist.flush(writeOffset);
+      // Write partial data 
+      writeBytesToDataList(tuple, 0, this.buffer.length - writeOffset);
       if (switchToNewBufferOrSuspendRead(tuple, 0, tuple.length)) {
-        writeBytesToDataList(tuple, 0, tuple.length);
+        currentTuple = null;
+      } else {
+        currentTuple = tuple;
       }
     }
   }
 
   public void writeBytesToDataList(byte[] tuple, int offset, int length)
   {
-    if (writeOffset + length < this.buffer.length) {
-      // Copy tuple bytes into datalist
-      System.arraycopy(tuple, 0, this.buffer, writeOffset, length);
-      writeOffset += length;
-      datalist.flush(writeOffset);
-      //      if(flag == true) {
-      //        logger.info("wrote data...");
-      //      }
-    } else {
-      // Data cannot be added completely in new buffer
-      // Write partial data
-      logger.info("Writing partial data....{} , {}, {}", writeOffset, tuple.length, this.buffer.length);
-      //System.arraycopy(tuple, 0, this.buffer, writeOffset, this.buffer.length - writeOffset);
-      //this.tupleOffset = this.buffer.length - writeOffset;
-      //      writeOffset = this.buffer.length;
-      //      datalist.flush(writeOffset);
-      logger.info("Wrote partial data....");
-      //switchToNewBufferOrSuspendRead(tuple, offset, length);
-    }
+    System.arraycopy(tuple, 0, this.buffer, writeOffset, length);
+    writeOffset += length;
   }
 
   private boolean switchToNewBufferOrSuspendRead(final byte[] tuple, int offset, int length)

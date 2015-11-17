@@ -49,7 +49,7 @@ public class BufferServerQueuePublisher extends BufferServerPublisher
     super(sourceId, queueCapacity);
     logger.debug("Instantiating BufferServerQueuePublisher");
     this.sourceId = sourceId;
-    queueCapacity = 6400000;
+    queueCapacity = 64000;
     this.queueCapacity = queueCapacity;
     logger.info("Queue capacity = {}", queueCapacity);
 
