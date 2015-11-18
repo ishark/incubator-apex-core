@@ -66,11 +66,11 @@ public class PublisherReceiverThread implements Runnable
           // put the tuple in DL
           writeToDataList(tuple);
         }
-        datalist.flush(writeOffset);
-        if (messageQueue.isEmpty()) {
-          logger.info("Queue is empty.. sleeping");
-          Thread.sleep(5);
-        }
+
+        //if (messageQueue.isEmpty()) {
+        logger.info("Queue is empty.. sleeping");
+        Thread.sleep(5);
+        //}
         //       logger.info("Queue size = {} ", messageQueue.size());
       }
       //      if (shutdown) {
@@ -91,7 +91,6 @@ public class PublisherReceiverThread implements Runnable
     if (writeOffset + tuple.length <= this.buffer.length) {
       writeBytesToDataList(tuple, 0, tuple.length);
     } else {
-      datalist.flush(writeOffset);
       // Write partial data 
       writeBytesToDataList(tuple, 0, this.buffer.length - writeOffset);
       if (switchToNewBufferOrSuspendRead(tuple, 0, tuple.length)) {
@@ -106,6 +105,7 @@ public class PublisherReceiverThread implements Runnable
   {
     System.arraycopy(tuple, 0, this.buffer, writeOffset, length);
     writeOffset += length;
+    datalist.flush(writeOffset);
   }
 
   private boolean switchToNewBufferOrSuspendRead(final byte[] tuple, int offset, int length)
@@ -121,13 +121,13 @@ public class PublisherReceiverThread implements Runnable
   {
     if (datalist.isMemoryBlockAvailable()) {
       flag = true;
-      logger.info("Switching to new buffer..");
+      logger.info("Switching to new buffer.. current write offset = {}, tuple length= {}, buffer length = {}", writeOffset, length, buffer.length);
       buffer = datalist.newBuffer();
-      System.arraycopy(tuple, this.tupleOffset, this.buffer, 0, length - this.tupleOffset);
-      writeOffset = length - this.tupleOffset;
+      System.arraycopy(tuple, this.tupleOffset, this.buffer, 0, length);
+      writeOffset = length;
       datalist.addBuffer(buffer);
       datalist.flush(writeOffset);
-      logger.info("Switched to new buffer.. {} {}", writeOffset, buffer.length);
+      logger.info("Switched to new buffer.. {} {} {}", writeOffset, length, buffer.length);
       return true;
     }
     return false;

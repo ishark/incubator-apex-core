@@ -223,12 +223,16 @@ public class DataList
   public void flush(final int writeOffset)
   {
     //logger.debug("size = {}, processingOffset = {}, nextOffset = {}, writeOffset = {}", size, processingOffset, nextOffset.integer, writeOffset);
-    flush:
+    flush: 
     do {
-      while (size == 0) {
+      if (size == 0) {
+        if (processingOffset == writeOffset) {
+          break;
+        }
         size = VarInt.read(last.data, processingOffset, writeOffset, nextOffset);
+
         if (nextOffset.integer > -5 && nextOffset.integer < 1) {
-          if (writeOffset == last.data.length) {
+          if (writeOffset == last.data.length || processingOffset == writeOffset) {
             nextOffset.integer = 0;
             processingOffset = 0;
             size = 0;
@@ -237,9 +241,8 @@ public class DataList
         } else if (nextOffset.integer == -5) {
           throw new RuntimeException("problemo!");
         }
+        processingOffset = nextOffset.integer;
       }
-
-      processingOffset = nextOffset.integer;
 
       if (processingOffset + size <= writeOffset) {
         switch (last.data[processingOffset]) {
@@ -266,7 +269,7 @@ public class DataList
         processingOffset += size;
         size = 0;
       } else {
-        if (writeOffset == last.data.length) {
+        if (writeOffset == last.data.length || processingOffset == writeOffset) {
           nextOffset.integer = 0;
           processingOffset = 0;
           size = 0;
@@ -455,6 +458,7 @@ public class DataList
 
   public byte[] newBuffer()
   {
+    logger.info("New buffer allocation");
     return new byte[blockSize];
   }
 
