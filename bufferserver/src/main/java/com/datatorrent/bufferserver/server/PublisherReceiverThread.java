@@ -92,7 +92,7 @@ public class PublisherReceiverThread implements Runnable
       writeBytesToDataList(tuple, 0, tuple.length);
     } else {
       // Write partial data 
- //     writeBytesToDataList(tuple, 0, this.buffer.length - writeOffset);
+      writeBytesToDataList(tuple, 0, this.buffer.length - writeOffset);
       if (switchToNewBufferOrSuspendRead(tuple, 0, tuple.length)) {
         currentTuple = null;
       } else {
