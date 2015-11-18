@@ -71,7 +71,7 @@ public class PublisherReceiverThread implements Runnable
         logger.info("Queue is empty.. sleeping");
         Thread.sleep(5);
         //}
-        //       logger.info("Queue size = {} ", messageQueue.size());
+        logger.info("Queue size = {} ", messageQueue.size());
       }
       //      if (shutdown) {
       //        // Read till queue is empty
@@ -92,7 +92,7 @@ public class PublisherReceiverThread implements Runnable
       writeBytesToDataList(tuple, 0, tuple.length);
     } else {
       // Write partial data 
-      writeBytesToDataList(tuple, 0, this.buffer.length - writeOffset);
+ //     writeBytesToDataList(tuple, 0, this.buffer.length - writeOffset);
       if (switchToNewBufferOrSuspendRead(tuple, 0, tuple.length)) {
         currentTuple = null;
       } else {

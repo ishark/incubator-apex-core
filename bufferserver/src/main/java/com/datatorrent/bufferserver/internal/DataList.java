@@ -230,7 +230,6 @@ public class DataList
           break;
         }
         size = VarInt.read(last.data, processingOffset, writeOffset, nextOffset);
-
         if (nextOffset.integer > -5 && nextOffset.integer < 1) {
           if (writeOffset == last.data.length || processingOffset == writeOffset) {
             nextOffset.integer = 0;
