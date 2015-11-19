@@ -64,16 +64,14 @@ public class PublisherReceiverThread implements Runnable
         }
 
         byte[] tuple;
-        while ((tuple = messageQueue.poll()) != null && !suspended) {
+        if ((tuple = messageQueue.poll()) != null) {
           // put the tuple in DL
           writeToDataList(tuple);
+        } else {        
+          logger.info("Queue is empty.. sleeping");
+          Thread.sleep(5);
         }
-
-        //if (messageQueue.isEmpty()) {
-        logger.info("Queue is empty.. sleeping");
-        Thread.sleep(5);
-        //}
-        logger.info("Queue size = {} ", messageQueue.size());
+//        logger.info("Queue size = {} ", messageQueue.size());
       }
       //      if (shutdown) {
       //        // Read till queue is empty
@@ -91,13 +89,15 @@ public class PublisherReceiverThread implements Runnable
   private void writeToDataList(byte[] tuple)
   {
     if (writeOffset + tuple.length + 5 <= this.buffer.length) {
-      prependLength(tuple);
+      //      prependLength(tuple);
+      writeOffset = VarInt.write(tuple.length, this.buffer, writeOffset);
       writeBytesToDataList(tuple, 0, tuple.length);
     } else {
       // Write partial data
-      prependLength(tuple);
-      datalist.flush(writeOffset);
-      //writeBytesToDataList(tuple, 0, this.buffer.length - writeOffset);
+      writeOffset = VarInt.write(tuple.length, this.buffer, writeOffset);
+      //      prependLength(tuple);
+      //datalist.flush(writeOffset);
+      //    writeBytesToDataList(tuple, 0, this.buffer.length - writeOffset);
       if (switchToNewBufferOrSuspendRead(tuple, 0, tuple.length)) {
         currentTuple = null;
       } else {
@@ -108,11 +108,11 @@ public class PublisherReceiverThread implements Runnable
 
   public void prependLength(byte[] tuple)
   {
-    byte[] intBuffer = new byte[INT_ARRAY_SIZE];
-    int intOffset = 0;
-    int newOffset = VarInt.write(tuple.length, intBuffer, intOffset);
-    System.arraycopy(intBuffer, 0, this.buffer, writeOffset, newOffset);
-    writeOffset += newOffset;
+    //byte[] intBuffer = new byte[INT_ARRAY_SIZE];
+//    int intOffset = 0;
+    
+//    System.arraycopy(intBuffer, 0, this.buffer, writeOffset, newOffset);
+//    writeOffset += newOffset;
   }
 
   public void writeBytesToDataList(byte[] tuple, int offset, int length)

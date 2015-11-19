@@ -316,7 +316,7 @@
                 <goal>check</goal>
               </goals>
               <configuration>
-                <failOnViolation>true</failOnViolation>
+                <failOnViolation>false</failOnViolation>
                 <logViolationsToConsole>${checkstyle.console}</logViolationsToConsole>
               </configuration>
             </execution>
