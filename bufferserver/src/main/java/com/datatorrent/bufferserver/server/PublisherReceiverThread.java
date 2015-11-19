@@ -87,8 +87,11 @@ public class PublisherReceiverThread implements Runnable
       // Write partial data
       if (writeOffset + 5 <= this.buffer.length) {
         writeOffset = VarInt.write(tuple.length, this.buffer, writeOffset);
-
-        if (writeOffset < this.buffer.length) {
+        logger.info("Write offset = {}", writeOffset);
+        if (writeOffset + tuple.length <= this.buffer.length) {
+          writeBytesToDataList(tuple, 0, tuple.length);
+          return;
+        } else {
           writeBytesToDataList(tuple, 0, this.buffer.length - writeOffset);
         }
       }
