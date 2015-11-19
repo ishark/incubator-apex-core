@@ -20,10 +20,12 @@ package com.datatorrent.bufferserver.server;
 
 import java.nio.ByteBuffer;
 import java.util.Queue;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.datatorrent.bufferserver.internal.DataList;
+import com.datatorrent.bufferserver.util.VarInt;
 import com.datatorrent.netlet.util.DTThrowable;
 
 public class PublisherReceiverThread implements Runnable
@@ -31,7 +33,7 @@ public class PublisherReceiverThread implements Runnable
   private volatile boolean shutdown = false;
   private volatile boolean suspended = false;
 
-  //  private static final int INT_ARRAY_SIZE = 4096 - 5;
+  private static final int INT_ARRAY_SIZE = 4096 - 5;
 
   DataList datalist;
   Queue<byte[]> messageQueue;
@@ -88,17 +90,29 @@ public class PublisherReceiverThread implements Runnable
 
   private void writeToDataList(byte[] tuple)
   {
-    if (writeOffset + tuple.length <= this.buffer.length) {
+    if (writeOffset + tuple.length + 5 <= this.buffer.length) {
+      prependLength(tuple);
       writeBytesToDataList(tuple, 0, tuple.length);
     } else {
-      // Write partial data 
-      writeBytesToDataList(tuple, 0, this.buffer.length - writeOffset);
+      // Write partial data
+      prependLength(tuple);
+      datalist.flush(writeOffset);
+      //writeBytesToDataList(tuple, 0, this.buffer.length - writeOffset);
       if (switchToNewBufferOrSuspendRead(tuple, 0, tuple.length)) {
         currentTuple = null;
       } else {
         currentTuple = tuple;
       }
     }
+  }
+
+  public void prependLength(byte[] tuple)
+  {
+    byte[] intBuffer = new byte[INT_ARRAY_SIZE];
+    int intOffset = 0;
+    int newOffset = VarInt.write(tuple.length, intBuffer, intOffset);
+    System.arraycopy(intBuffer, 0, this.buffer, writeOffset, newOffset);
+    writeOffset += newOffset;
   }
 
   public void writeBytesToDataList(byte[] tuple, int offset, int length)

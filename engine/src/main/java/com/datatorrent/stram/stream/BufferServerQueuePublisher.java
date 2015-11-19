@@ -30,7 +30,7 @@ import org.slf4j.LoggerFactory;
 
 import com.datatorrent.bufferserver.packet.PublishRequestTuple;
 import com.datatorrent.bufferserver.packet.Tuple;
-import com.datatorrent.netlet.util.VarInt;
+//import com.datatorrent.netlet.util.VarInt;
 import com.datatorrent.stram.engine.StreamContext;
 
 import static java.lang.Thread.sleep;
@@ -63,13 +63,14 @@ public class BufferServerQueuePublisher extends BufferServerPublisher
   {
     try {
       // sleep(5);
-      byte[] intBuffer = new byte[INT_ARRAY_SIZE];
-      int intOffset = 0;
-      int newOffset = VarInt.write(array.length, intBuffer, intOffset);
-      byte[] prependLengthArray = new byte[newOffset + array.length];
-      System.arraycopy(intBuffer, 0, prependLengthArray, 0, newOffset);
-      System.arraycopy(array, 0, prependLengthArray, newOffset, array.length);
-      while (!messageQueue.offer(prependLengthArray)) {
+//      byte[] intBuffer = new byte[INT_ARRAY_SIZE];
+//      int intOffset = 0;
+//      int newOffset = VarInt.write(array.length, intBuffer, intOffset);
+//      byte[] prependLengthArray = new byte[newOffset + array.length];
+//      System.arraycopy(intBuffer, 0, prependLengthArray, 0, newOffset);
+//      System.arraycopy(array, 0, prependLengthArray, newOffset, array.length);
+//      while (!messageQueue.offer(prependLengthArray)) {
+      while (!messageQueue.offer(array)) {
         logger.info("Sleeping for 5 ms.. Queue is full queue size = {}", messageQueue.size());
         sleep(5);
       }
