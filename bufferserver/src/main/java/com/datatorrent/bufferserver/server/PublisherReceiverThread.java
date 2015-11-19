@@ -137,8 +137,10 @@ public class PublisherReceiverThread implements Runnable
       flag = true;
       logger.info("Switching to new buffer.. current write offset = {}, tuple length= {}, buffer length = {}", writeOffset, length, buffer.length);
       buffer = datalist.newBuffer();
+      writeOffset =0;
+      writeOffset = VarInt.write(tuple.length, this.buffer, writeOffset);
       System.arraycopy(tuple, this.tupleOffset, this.buffer, 0, length);
-      writeOffset = length;
+      writeOffset += length;
       datalist.addBuffer(buffer);
       datalist.flush(writeOffset);
       logger.info("Switched to new buffer.. {} {} {}", writeOffset, length, buffer.length);
