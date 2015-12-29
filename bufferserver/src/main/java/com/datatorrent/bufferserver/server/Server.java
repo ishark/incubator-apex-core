@@ -594,6 +594,8 @@ public class Server implements ServerListener
   {
     private final DataList datalist;
     boolean dirty;
+    int count = 0;
+    long startTime = 0;
 
     Publisher(DataList dl, long windowId)
     {
@@ -645,6 +647,15 @@ public class Server implements ServerListener
     @Override
     public void read(int len)
     {
+      if (startTime == 0) {
+        startTime = System.currentTimeMillis();
+      }
+      count++;
+      if (count >= 1000000) {
+        logger.info("Publisher read count = {} time = {}", count, System.currentTimeMillis() - startTime);
+        count = 0;
+        startTime = System.currentTimeMillis();
+      }
       readExt(len);
     }
 

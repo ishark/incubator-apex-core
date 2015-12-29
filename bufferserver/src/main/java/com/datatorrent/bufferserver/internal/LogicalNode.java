@@ -56,6 +56,8 @@ public class LogicalNode implements DataListener
   private final long skipWindowId;
   private long baseSeconds;
   private boolean caughtup;
+  private int count = 0;
+  private long startTime = 0;
 
   /**
    *
@@ -234,6 +236,9 @@ public class LogicalNode implements DataListener
     if (isReady()) {
       if (caughtup) {
         try {
+          if (count == 0) {
+            startTime = System.currentTimeMillis();
+          }
           /*
            * consume as much data as you can before running out of steam
            */
@@ -243,6 +248,7 @@ public class LogicalNode implements DataListener
               switch (data.buffer[data.dataOffset]) {
                 case MessageType.PAYLOAD_VALUE:
                   ready = policy.distribute(physicalNodes, data);
+                  count++;
                   break;
 
                 case MessageType.NO_MESSAGE_VALUE:
@@ -260,6 +266,11 @@ public class LogicalNode implements DataListener
                   //logger.debug("sending data of type {}", MessageType.valueOf(data.buffer[data.dataOffset]));
                   ready = GiveAll.getInstance().distribute(physicalNodes, data);
                   break;
+              }
+              if (count >= 1000000) {
+                logger.info("Sent across tuples = {} Time = {}, ready = {}", count, System.currentTimeMillis()
+                    - startTime, ready);
+                count = 0;
               }
             }
           } else {

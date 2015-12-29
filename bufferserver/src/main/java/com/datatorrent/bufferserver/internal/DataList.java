@@ -74,6 +74,8 @@ public class DataList
   private final AtomicInteger numberOfInMemBlockPermits;
   private MutableInt nextOffset = new MutableInt();
   private Future<?> future;
+  private int flushCount = 0;
+  private int lastFlushOffset = 0;
 
   public DataList(final String identifier, final int blockSize, final int numberOfCacheBlocks)
   {
@@ -228,8 +230,12 @@ public class DataList
 
   public void flush(final int writeOffset)
   {
-    //logger.debug("size = {}, processingOffset = {}, nextOffset = {}, writeOffset = {}", size, processingOffset,
-    //    nextOffset.integer, writeOffset);
+    flushCount++;
+    if (flushCount >= 1000) {
+      logger.info("flushCount = {}, lastFlushOffset = {},  writeOffset = {}", flushCount, lastFlushOffset, writeOffset);
+      flushCount = 0;
+      lastFlushOffset = writeOffset;
+    }
     flush:
     do {
       while (size == 0) {
