@@ -609,7 +609,21 @@ public class Server implements ServerListener
       //if (buffer[offset] == MessageType.BEGIN_WINDOW_VALUE || buffer[offset] == MessageType.END_WINDOW_VALUE) {
       //  logger.debug("server received {}", Tuple.getTuple(buffer, offset, size));
       //}
+      incrementCounter();
       dirty = true;
+    }
+
+    public void incrementCounter()
+    {
+      if (startTime == 0) {
+        startTime = System.currentTimeMillis();
+      }
+      count++;
+      if (count >= 1000000) {
+        logger.info("Publisher read count = {} time = {}", count, System.currentTimeMillis() - startTime);
+        count = 0;
+        startTime = System.currentTimeMillis();
+      }
     }
 
     /**
@@ -647,15 +661,6 @@ public class Server implements ServerListener
     @Override
     public void read(int len)
     {
-      if (startTime == 0) {
-        startTime = System.currentTimeMillis();
-      }
-      count++;
-      if (count >= 1000000) {
-        logger.info("Publisher read count = {} time = {}", count, System.currentTimeMillis() - startTime);
-        count = 0;
-        startTime = System.currentTimeMillis();
-      }
       readExt(len);
     }
 
@@ -699,6 +704,7 @@ public class Server implements ServerListener
           readOffset += size;
           size = 0;
         } else {
+          incrementCounter();
           if (writeOffset == buffer.length) {
             dirty = false;
             datalist.flush(writeOffset);
@@ -733,6 +739,7 @@ public class Server implements ServerListener
     private boolean switchToNewBuffer(final byte[] array, final int offset)
     {
       if (datalist.isMemoryBlockAvailable()) {
+        logger.info("Switching to new buffer");
         final byte[] newBuffer = datalist.newBuffer();
         byteBuffer = ByteBuffer.wrap(newBuffer);
         if (array == null || array.length - offset == 0) {

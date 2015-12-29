@@ -267,11 +267,11 @@ public class LogicalNode implements DataListener
                   ready = GiveAll.getInstance().distribute(physicalNodes, data);
                   break;
               }
-              if (count >= 1000000) {
-                logger.info("Sent across tuples = {} Time = {}, ready = {}", count, System.currentTimeMillis()
-                    - startTime, ready);
-                count = 0;
-              }
+            }
+            if (count >= 1000000) {
+              logger.info("Sent across tuples = {} Time = {}, ready = {}", count, System.currentTimeMillis()
+                  - startTime, ready);
+              count = 0;
             }
           } else {
             while (ready && iterator.hasNext()) {
