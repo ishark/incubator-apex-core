@@ -44,7 +44,9 @@ public class PublisherReceiverThread implements Runnable
   int flushCount = 1000000;
   int counter = 0;
   long startTime = 0;
-
+  long publisherRecivedCount = 0;
+  long startCountTime = 0;
+  long THRESHOLD = 10000000;
   public PublisherReceiverThread(Queue<byte[]> queue, DataList dl, long windowId)
   {
     this.buffer = dl.getBuffer(windowId);
@@ -58,6 +60,7 @@ public class PublisherReceiverThread implements Runnable
   {
     try {
       startTime = System.currentTimeMillis();
+      startCountTime = System.currentTimeMillis();
       while (!shutdown) {
         while (suspended) {
           logger.info("Thread suspended...");
@@ -69,6 +72,11 @@ public class PublisherReceiverThread implements Runnable
           // put the tuple in DL
           writeToDataList(tuple);
           counter++;
+          if(publisherRecivedCount >= THRESHOLD) {
+            logger.info("Time for receiving {} tuples on publisher receiver thread = {}", THRESHOLD, System.currentTimeMillis() - startCountTime);
+            publisherRecivedCount = 0;
+            startCountTime = System.currentTimeMillis();
+          }
           if (counter >= flushCount || System.currentTimeMillis() - startTime >= flushInterval) {
             flushDataList();
           }

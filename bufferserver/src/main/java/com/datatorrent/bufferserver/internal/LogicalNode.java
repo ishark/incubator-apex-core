@@ -56,7 +56,8 @@ public class LogicalNode implements DataListener
   private final long skipWindowId;
   private long baseSeconds;
   private boolean caughtup;
-
+  private long count = 0;
+  private long startLongTime = 0;
   /**
    *
    * @param upstream
@@ -70,7 +71,7 @@ public class LogicalNode implements DataListener
     this.group = group;
     this.physicalNodes = new HashSet<PhysicalNode>();
     this.partitions = new HashSet<BitVector>();
-
+    startLongTime = System.currentTimeMillis();
     if (iterator instanceof DataListIterator) {
       this.iterator = (DataListIterator)iterator;
     } else {
@@ -135,6 +136,7 @@ public class LogicalNode implements DataListener
   }
 
   boolean ready = true;
+  private long THRESHOLD = 10000000;
 
   public boolean isReady()
   {
@@ -243,6 +245,7 @@ public class LogicalNode implements DataListener
               switch (data.buffer[data.dataOffset]) {
                 case MessageType.PAYLOAD_VALUE:
                   ready = policy.distribute(physicalNodes, data);
+                  count++;
                   break;
 
                 case MessageType.NO_MESSAGE_VALUE:
@@ -261,6 +264,11 @@ public class LogicalNode implements DataListener
                   ready = GiveAll.getInstance().distribute(physicalNodes, data);
                   break;
               }
+            }
+            if(count >= THRESHOLD) {
+              logger.info("Recieved tuples {} on subscriber in time = {}", count, System.currentTimeMillis() - startLongTime);
+              count = 0;
+              startLongTime = System.currentTimeMillis();
             }
           } else {
             while (ready && iterator.hasNext()) {
