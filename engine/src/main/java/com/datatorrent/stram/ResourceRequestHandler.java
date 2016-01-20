@@ -64,7 +64,7 @@ public class ResourceRequestHandler
     String[] nodes = null;
     String[] racks = null;
 
-    String host = getHost(csr, first);
+    String host = "node17.morado.com";//getHost(csr, first);
     Resource capability = Records.newRecord(Resource.class);
     capability.setMemory(csr.container.getRequiredMemoryMB());
     capability.setVirtualCores(csr.container.getRequiredVCores());
