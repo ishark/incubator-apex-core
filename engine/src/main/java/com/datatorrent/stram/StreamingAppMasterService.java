@@ -778,16 +778,18 @@ public class StreamingAppMasterService extends CompositeService
         }
       }
 
-      List<ContainerStartRequest> removalList = new LinkedList<>();
-      for (ContainerStartRequest csr : pendingContainerStartRequests) {
-        ContainerRequest cr = resourceRequestor.createContainerRequest(csr, true);
-        if (cr != null) {
-          containerRequestor.addContainerRequest(requestedResources, loopCounter, containerRequests, csr, cr);
-          removalList.add(csr);
+      // If all other requests are allocated, retry pending requests which need host availability
+      if (containerRequests.isEmpty() && !pendingContainerStartRequests.isEmpty()) {
+        List<ContainerStartRequest> removalList = new LinkedList<>();
+        for (ContainerStartRequest csr : pendingContainerStartRequests) {
+          ContainerRequest cr = resourceRequestor.createContainerRequest(csr, true);
+          if (cr != null) {
+            containerRequestor.addContainerRequest(requestedResources, loopCounter, containerRequests, csr, cr);
+            removalList.add(csr);
+          }
         }
+        pendingContainerStartRequests.removeAll(removalList);
       }
-
-      pendingContainerStartRequests.removeAll(removalList);
 
       containerRequestor.reissueContainerRequests(amRmClient, requestedResources, loopCounter, resourceRequestor, containerRequests, removedContainerRequests);
 
