@@ -105,6 +105,7 @@ public class StreamingAppMasterService extends CompositeService
   private static final long DELEGATION_TOKEN_REMOVER_SCAN_INTERVAL = 24 * 60 * 60 * 1000;
   private static final int MAX_CONTAINER_FAILURES_PER_NODE = 3;
   private static final long BLACKLIST_REMOVAL_TIME = 60 * 60 * 1000;
+  private static final int UPDATE_NODE_REPORTS_INTERVAL = 10* 60 * 1000;
   private AMRMClient<ContainerRequest> amRmClient;
   private NMClientAsync nmClient;
   private LogicalPlan dag;
@@ -662,6 +663,7 @@ public class StreamingAppMasterService extends CompositeService
     // is not required.
 
     int loopCounter = -1;
+    long nodeReportUpdateTime = 0;
     List<ContainerId> releasedContainers = new ArrayList<ContainerId>();
     int numTotalContainers = 0;
     // keep track of already requested containers to not request them again while waiting for allocation
@@ -672,6 +674,7 @@ public class StreamingAppMasterService extends CompositeService
     // Use override for container requestor in case of cloudera distribution,to handle host specific requests
     ContainerRequestHandler containerRequestor = System.getenv().containsKey("CDH_HADOOP_BIN") ? new ContainerRequestHandlerCloudera() : new ContainerRequestHandler();
 
+    List<ContainerStartRequest> pendingContainerStartRequests = new LinkedList<>();
     YarnClient clientRMService = YarnClient.createYarnClient();
 
     try {
@@ -694,6 +697,7 @@ public class StreamingAppMasterService extends CompositeService
         return;
       }
       resourceRequestor.updateNodeReports(clientRMService.getNodeReports());
+      nodeReportUpdateTime = System.currentTimeMillis();
     } catch (Exception e) {
       throw new RuntimeException("Failed to retrieve cluster nodes report.", e);
     } finally {
@@ -714,6 +718,11 @@ public class StreamingAppMasterService extends CompositeService
       if (UserGroupInformation.isSecurityEnabled() && System.currentTimeMillis() >= expiryTime && hdfsKeyTabFile != null) {
         String applicationId = appAttemptID.getApplicationId().toString();
         expiryTime = StramUserLogin.refreshTokens(tokenLifeTime, FileUtils.getTempDirectoryPath(), applicationId, conf, hdfsKeyTabFile, credentials, rmAddress, true);
+      }
+
+      if (System.currentTimeMillis() - nodeReportUpdateTime >= UPDATE_NODE_REPORTS_INTERVAL) {
+        resourceRequestor.updateNodeReports(clientRMService.getNodeReports());
+        nodeReportUpdateTime = System.currentTimeMillis();
       }
 
       Runnable r;
@@ -761,9 +770,24 @@ public class StreamingAppMasterService extends CompositeService
           }
           csr.container.setResourceRequestPriority(nextRequestPriority++);
           ContainerRequest cr = resourceRequestor.createContainerRequest(csr, true);
-          containerRequestor.addContainerRequest(requestedResources, loopCounter, containerRequests, csr, cr);
+          if (cr == null) {
+            pendingContainerStartRequests.add(csr);
+          } else {
+            containerRequestor.addContainerRequest(requestedResources, loopCounter, containerRequests, csr, cr);
+          }
         }
       }
+
+      List<ContainerStartRequest> removalList = new LinkedList<>();
+      for (ContainerStartRequest csr : pendingContainerStartRequests) {
+        ContainerRequest cr = resourceRequestor.createContainerRequest(csr, true);
+        if (cr != null) {
+          containerRequestor.addContainerRequest(requestedResources, loopCounter, containerRequests, csr, cr);
+          removalList.add(csr);
+        }
+      }
+
+      pendingContainerStartRequests.removeAll(removalList);
 
       containerRequestor.reissueContainerRequests(amRmClient, requestedResources, loopCounter, resourceRequestor, containerRequests, removedContainerRequests);
 

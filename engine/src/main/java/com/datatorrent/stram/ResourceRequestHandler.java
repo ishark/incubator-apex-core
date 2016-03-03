@@ -50,7 +50,7 @@ public class ResourceRequestHandler
 {
 
   private final static Logger LOG = LoggerFactory.getLogger(ResourceRequestHandler.class);
-
+  private final static String INVALID_HOST = "INVALID_HOST";
   public ResourceRequestHandler()
   {
     super();
@@ -70,7 +70,9 @@ public class ResourceRequestHandler
     Resource capability = Records.newRecord(Resource.class);
     capability.setMemory(csr.container.getRequiredMemoryMB());
     capability.setVirtualCores(csr.container.getRequiredVCores());
-
+    if (host == INVALID_HOST) {
+      return null;
+    }
     if (host != null) {
       nodes = new String[]{host};
       // in order to request a host, we don't have to set the rack if the locality is false
@@ -210,10 +212,12 @@ public class ResourceRequestHandler
           antiPreferredHosts.clear();
           host = assignHost(host, antiHosts, antiPreferredHosts, grpObj, nodeLocalSet, aggrMemory, vCores);
         }
+        if (host != null) {
+          antiAffinityMapping.put(c, host);
+        } else {
+          host = INVALID_HOST;
+        }
       }
-    }
-    if (host != null) {
-      antiAffinityMapping.put(c, host);
     }
     LOG.info("Found host {}", host);
     return host;
