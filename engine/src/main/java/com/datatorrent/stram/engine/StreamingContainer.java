@@ -1327,7 +1327,7 @@ public class StreamingContainer extends YarnContainerMain
       eventBus.publish(new NodeDeactivationEvent(node));
       node.deactivate();
       node.teardown();
-      logger.debug("deactivated {}", node.getId());
+      logger.info("deactivated {}", node.getId());
     }
   }
 
